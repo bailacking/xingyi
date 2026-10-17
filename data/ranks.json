@@ -1,0 +1,81 @@
+{
+  "maxLevel": 15,
+  "calibrated": false,
+  "levels": [
+    {
+      "level": 1,
+      "rating": 1000,
+      "calibrated": false
+    },
+    {
+      "level": 2,
+      "rating": 1075,
+      "calibrated": false
+    },
+    {
+      "level": 3,
+      "rating": 1150,
+      "calibrated": false
+    },
+    {
+      "level": 4,
+      "rating": 1225,
+      "calibrated": false
+    },
+    {
+      "level": 5,
+      "rating": 1300,
+      "calibrated": false
+    },
+    {
+      "level": 6,
+      "rating": 1375,
+      "calibrated": false
+    },
+    {
+      "level": 7,
+      "rating": 1450,
+      "calibrated": false
+    },
+    {
+      "level": 8,
+      "rating": 1525,
+      "calibrated": false
+    },
+    {
+      "level": 9,
+      "rating": 1600,
+      "calibrated": false
+    },
+    {
+      "level": 10,
+      "rating": 1675,
+      "calibrated": false
+    },
+    {
+      "level": 11,
+      "rating": 1750,
+      "calibrated": false
+    },
+    {
+      "level": 12,
+      "rating": 1825,
+      "calibrated": false
+    },
+    {
+      "level": 13,
+      "rating": 1900,
+      "calibrated": false
+    },
+    {
+      "level": 14,
+      "rating": 1975,
+      "calibrated": false
+    },
+    {
+      "level": 15,
+      "rating": 2050,
+      "calibrated": false
+    }
+  ]
+}

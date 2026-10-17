@@ -15,6 +15,8 @@ coverage/
 # 本地数据（不入库）
 data/engine/
 data/models/
+data/games/
+data/config.json
 backups/
 logs/
 progress.json

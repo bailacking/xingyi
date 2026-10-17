@@ -1,0 +1,573 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { gtpToVertex } from '@xingyi/shared';
+import { Board } from '../board/Board';
+import { api, ApiError, type Bootstrap, type GameResponse, type SocketEvent } from '../api';
+import { AnalysisPanel } from '../panels/AnalysisPanel';
+import { MoveList } from '../panels/MoveList';
+import { playBell, playStone } from '../sound';
+import {
+  CAPS,
+  CAP_NOTES,
+  MODE_NAMES,
+  PASS,
+  levelCn,
+  levelCnFormal,
+  type AnalysisCandidate,
+  type AnalysisResult,
+  type GameSnapshot,
+  type Mode,
+} from '../types';
+import type { Settlement } from '../types';
+
+interface GameViewProps {
+  mode: Mode;
+  bootstrap: Bootstrap;
+  lastEvent: SocketEvent | null;
+  onBack: () => void;
+}
+
+const cnNumber = (n: number): string => levelCn(Math.abs(n)).replace('级', '');
+
+export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) {
+  const caps = CAPS[mode];
+  const [game, setGame] = useState<GameSnapshot | null>(null);
+  const [opponent, setOpponent] = useState<'katago' | 'offline' | 'human'>('offline');
+  const [isPlacement, setIsPlacement] = useState(false);
+  const [settlement, setSettlement] = useState<Settlement | null>(null);
+  const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
+  const [analysisReason, setAnalysisReason] = useState<string | null>(null);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [hoverPv, setHoverPv] = useState<AnalysisCandidate | null>(null);
+  const [showOwnership, setShowOwnership] = useState(bootstrap.config.ui.showOwnership);
+  const [deadStones, setDeadStones] = useState<number[]>([]);
+  const [scorePreview, setScorePreview] = useState<{
+    blackArea: number;
+    whiteArea: number;
+    komi: number;
+    diff: number;
+    winner: 'B' | 'W' | null;
+    margin: number;
+  } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [showResult, setShowResult] = useState(false);
+  const [setup, setSetup] = useState({
+    size: bootstrap.config.game.boardSize,
+    level: Math.min(8, bootstrap.progress.maxLevel),
+    playerColor: bootstrap.config.ui.playerColor,
+  });
+
+  const gameRef = useRef<GameSnapshot | null>(null);
+  gameRef.current = game;
+
+  const applyResponse = useCallback((res: GameResponse) => {
+    setGame(res.snapshot);
+    if (res.opponent) setOpponent(res.opponent);
+    if (typeof res.isPlacement === 'boolean') setIsPlacement(res.isPlacement);
+    if (res.settlement) setSettlement(res.settlement);
+    if (res.warnings?.length) setError(res.warnings.join(' / '));
+  }, []);
+
+  const startGame = useCallback(
+    async (examLevel?: number | null) => {
+      setBusy(true);
+      setError(null);
+      setSettlement(null);
+      setShowResult(false);
+      setAnalysis(null);
+      setAnalysisReason(null);
+      setDeadStones([]);
+      setScorePreview(null);
+      try {
+        const res = await api.newGame(
+          mode === 'ranked'
+            ? { mode, examLevel: examLevel ?? null }
+            : {
+                mode,
+                size: setup.size,
+                level: setup.level,
+                playerColor: setup.playerColor,
+                komi: 7.5,
+              },
+        );
+        applyResponse(res);
+      } catch (err) {
+        setError(err instanceof ApiError ? err.message : '开局失败');
+      } finally {
+        setBusy(false);
+      }
+    },
+    [applyResponse, mode, setup.level, setup.playerColor, setup.size],
+  );
+
+  useEffect(() => {
+    void startGame(null);
+    // 只在模式变化时自动开局；难度调整由「重新开局」按钮触发
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode]);
+
+  // 服务端推送（AI 落子 / 引擎状态）
+  useEffect(() => {
+    if (!lastEvent || lastEvent.type !== 'game') return;
+    const snap = lastEvent.data as GameSnapshot;
+    if (!snap?.id || snap.id !== gameRef.current?.id) return;
+    const before = gameRef.current?.grid.reduce((a, b) => a + (b ? 1 : 0), 0) ?? 0;
+    const after = snap.grid.reduce((a, b) => a + (b ? 1 : 0), 0);
+    if (after > before) playStone(snap.captures.B + snap.captures.W > 0);
+    setGame(snap);
+  }, [lastEvent]);
+
+  // 对局结束但没拿到结算信息（例如 AI 认输）→ 拉一次完整状态
+  useEffect(() => {
+    if (!game || game.status !== 'finished' || settlement) return;
+    let alive = true;
+    void api
+      .getGame(game.id)
+      .then((res) => {
+        if (!alive) return;
+        if (res.settlement) setSettlement(res.settlement);
+        if (res.snapshot) setGame(res.snapshot);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [game, settlement]);
+
+  // 结束时一声磬 + 弹出结算
+  useEffect(() => {
+    if (!game || game.status !== 'finished') return;
+    playBell();
+    setShowResult(true);
+  }, [game?.status, game?.id]);
+
+  // 实时分析（仅自在模式；防抖合并连续摆子）
+  useEffect(() => {
+    if (!game || !caps.allowAnalysis || game.status !== 'playing') return;
+    let alive = true;
+    setAnalyzing(true);
+    const timer = window.setTimeout(() => {
+      void api
+        .analyze(game.id)
+        .then((res) => {
+          if (!alive) return;
+          if (res.available) {
+            setAnalysis(res.result);
+            setAnalysisReason(null);
+          } else {
+            setAnalysis(null);
+            setAnalysisReason(res.reason);
+          }
+        })
+        .catch(() => undefined)
+        .finally(() => alive && setAnalyzing(false));
+    }, 420);
+    return () => {
+      alive = false;
+      window.clearTimeout(timer);
+    };
+  }, [game?.id, game?.moves.length, game?.status, caps.allowAnalysis]);
+
+  // 结算阶段：死子变化时刷新形势
+  useEffect(() => {
+    if (!game || game.status !== 'scoring') return;
+    let alive = true;
+    void api
+      .score(game.id, deadStones)
+      .then((res) => alive && setScorePreview(res))
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [game?.id, game?.status, deadStones.join(',')]);
+
+  const play = async (vertex: number) => {
+    if (!game || busy || game.aiThinking || game.status !== 'playing') return;
+    if (game.toPlay !== game.playerColor && opponent !== 'human') return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await api.move(game.id, vertex);
+      applyResponse(res);
+      playStone(false);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : '落子失败');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const doPass = async () => {
+    if (!game) return;
+    try {
+      applyResponse(await api.pass(game.id));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : '停一手失败');
+    }
+  };
+
+  const doUndo = async () => {
+    if (!game) return;
+    const back = opponent === 'human' ? 1 : 2;
+    try {
+      applyResponse(await api.undo(game.id, Math.max(0, game.moves.length - back)));
+      setShowResult(false);
+      setSettlement(null);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : '悔棋失败');
+    }
+  };
+
+  const doResign = async () => {
+    if (!game) return;
+    if (!window.confirm('认输这盘？修习模式下会算负并计入进度。')) return;
+    try {
+      applyResponse(await api.resign(game.id));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : '认输失败');
+    }
+  };
+
+  const doFinish = async () => {
+    if (!game) return;
+    try {
+      applyResponse(await api.finish(game.id, deadStones));
+      setShowResult(true);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : '结算失败');
+    }
+  };
+
+  const exit = async () => {
+    if (game && game.status === 'playing' && caps.quitLoses) {
+      if (!window.confirm('修习模式下中途退出算负，确定离开？')) return;
+      try {
+        await api.quit(game.id);
+      } catch {
+        /* 忽略 */
+      }
+    }
+    onBack();
+  };
+
+  const importSgf = async (file: File) => {
+    try {
+      const text = await file.text();
+      const res = await api.importSgf(text);
+      applyResponse(res);
+      setSettlement(null);
+      setShowResult(false);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'SGF 解析失败');
+    }
+  };
+
+  const ghost = useMemo(() => {
+    if (!hoverPv || !game) return null;
+    const out: { vertex: number; order: number }[] = [];
+    hoverPv.pv.slice(0, 6).forEach((s, i) => {
+      const v = gtpToVertex(game.size, s);
+      if (v !== PASS) out.push({ vertex: v, order: i });
+    });
+    return out;
+  }, [hoverPv, game]);
+
+  const humanTurn = Boolean(
+    game && game.status === 'playing' && !game.aiThinking && (opponent === 'human' || game.toPlay === game.playerColor),
+  );
+
+  const statusText = !game
+    ? '开局中…'
+    : game.status === 'finished'
+      ? '终局'
+      : game.status === 'scoring'
+        ? '待数子'
+        : game.aiThinking
+          ? '对方思考中'
+          : humanTurn
+            ? '轮到你了'
+            : '等待';
+
+  const opponentLabel = opponent === 'offline' ? '离线对手' : opponent === 'human' ? '同机对手' : 'KataGo';
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'f' || e.key === 'F') setShowOwnership((v) => !v);
+      if (e.key === 'Escape') setShowResult(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  return (
+    <div className="game">
+      <div className="board-column">
+        <div className="topbar">
+          <button className="linkish" onClick={() => void exit()}>
+            ← 返回
+          </button>
+          <span className="brand">星弈</span>
+          <span className="badge">{MODE_NAMES[mode]}</span>
+          <span className="grow" />
+          {mode === 'free' && (
+            <>
+              <select
+                value={setup.size}
+                onChange={(e) => setSetup((s) => ({ ...s, size: Number(e.target.value) as 9 | 13 | 19 }))}
+                style={{ width: 88 }}
+                title="棋盘路数（改完点重新开局）"
+              >
+                <option value={9}>9 路</option>
+                <option value={13}>13 路</option>
+                <option value={19}>19 路</option>
+              </select>
+              <select
+                value={setup.level}
+                onChange={(e) => setSetup((s) => ({ ...s, level: Number(e.target.value) }))}
+                style={{ width: 100 }}
+                title="对手难度"
+              >
+                {Array.from({ length: bootstrap.progress.maxLevel }, (_, i) => i + 1).map((lv) => (
+                  <option key={lv} value={lv}>
+                    {levelCn(lv)}
+                  </option>
+                ))}
+              </select>
+              <button className="btn" onClick={() => void startGame(null)} disabled={busy}>
+                重新开局
+              </button>
+              <label className="btn" style={{ cursor: 'pointer' }}>
+                导入棋谱
+                <input
+                  type="file"
+                  accept=".sgf,application/x-go-sgf"
+                  style={{ display: 'none' }}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) void importSgf(f);
+                    e.target.value = '';
+                  }}
+                />
+              </label>
+            </>
+          )}
+          <span className={`badge${humanTurn ? ' badge-live' : ''}`}>{statusText}</span>
+        </div>
+
+        <div className="seals">
+          <div className="seal-block">
+            <div className={`seal${humanTurn ? ' is-active' : ''}`}>{levelCnFormal(game?.level ?? 8)}</div>
+            <div className="seal-caption">{isPlacement ? '定级 · 你' : '你'}</div>
+          </div>
+          <span className="seal-vs">对</span>
+          <div className="seal-block">
+            <div className={`seal${!humanTurn && game?.status === 'playing' ? ' is-active' : ''}`}>
+              {levelCnFormal(game?.level ?? 8)}
+            </div>
+            <div className="seal-caption">
+              难度 · {opponentLabel}
+            </div>
+          </div>
+        </div>
+
+        <div className="board-wrap">
+          {game ? (
+            <Board
+              size={game.size}
+              grid={game.grid}
+              lastMove={game.lastMove}
+              ownership={analysis?.ownership ?? null}
+              showOwnership={showOwnership && caps.showWinrate}
+              ghost={ghost}
+              deadStones={game.status === 'scoring' ? deadStones : []}
+              interactive={humanTurn}
+              onPlace={(v) => void play(v)}
+              onToggleDead={
+                game.status === 'scoring'
+                  ? (v) => setDeadStones((d) => (d.includes(v) ? d.filter((x) => x !== v) : [...d, v]))
+                  : undefined
+              }
+            />
+          ) : (
+            <div className="hint">{busy ? '正在开局…' : '没有对局'}</div>
+          )}
+        </div>
+      </div>
+
+      <aside className="side">
+        {isPlacement && game && (
+          <div className="notice">
+            定级赛 第 {bootstrap.progress.placement.stage + 1} 盘 · 对手 {levelCn(game.level)}
+            <br />
+            <span className="hint">
+              三盘自适应定级，前 10 盘为暂定级。下完才知道你在哪一级，不用挑难度。
+            </span>
+          </div>
+        )}
+
+        <section className="panel">
+          <div className="panel-head">
+            <span className="panel-title">对局</span>
+            <span className="panel-sub">
+              {game ? `${game.size} 路 · 贴 ${game.komi} 目` : '—'}
+            </span>
+          </div>
+          <div className="stat-row">
+            <span className="stat-key">提子（黑/白）</span>
+            <span className="stat-val">
+              {game ? `${game.captures.W} / ${game.captures.B}` : '—'}
+            </span>
+          </div>
+          <div className="stat-row">
+            <span className="stat-key">手数</span>
+            <span className="stat-val">{game?.moves.length ?? 0}</span>
+          </div>
+          {opponent === 'offline' && (
+            <div className="hint" style={{ marginTop: 8 }}>
+              当前是<strong>离线对手</strong>（程序自带启发式陪练，不是 KataGo）。装上引擎后会自动换成真对手；
+              自定义的等级难度在离线模式下只是粗略近似。
+            </div>
+          )}
+
+          <div className="controls" style={{ marginTop: 12 }}>
+            <button className="btn" onClick={doPass} disabled={!humanTurn}>
+              停一手
+            </button>
+            <button
+              className="btn"
+              onClick={doUndo}
+              disabled={!caps.allowUndo || !game || game.moves.length === 0}
+              title={caps.allowUndo ? '退回上一手（AI 会重算）' : CAP_NOTES.allowUndo}
+            >
+              悔棋
+            </button>
+            <button className="btn" onClick={doResign} disabled={!game || game.status !== 'playing'}>
+              认输
+            </button>
+          </div>
+          {!caps.allowUndo && <div className="hint" style={{ marginTop: 8 }}>{CAP_NOTES.allowUndo}。</div>}
+        </section>
+
+        <AnalysisPanel
+          caps={caps}
+          analysis={analysis}
+          unavailableReason={analysisReason}
+          loading={analyzing}
+          showOwnership={showOwnership}
+          onToggleOwnership={() => setShowOwnership((v) => !v)}
+          onHover={(v) => {
+            if (v === null) {
+              setHoverPv(null);
+              return;
+            }
+            const cand = analysis?.candidates.find((c) => c.vertex === v) ?? null;
+            setHoverPv(cand);
+          }}
+          onPick={(v) => void play(v)}
+          canPlay={humanTurn}
+        />
+
+        <MoveList
+          size={game?.size ?? 19}
+          moves={game?.moves ?? []}
+          onJump={caps.allowUndo && game ? (ply) => void api.undo(game.id, ply).then(applyResponse).catch(() => undefined) : undefined}
+        />
+
+        {error && <div className="notice hint-warn">{error}</div>}
+        <div className="hint" style={{ textAlign: 'center' }}>
+          快捷键：F 形势图 · Esc 关闭结算
+        </div>
+      </aside>
+
+      {game?.status === 'scoring' && (
+        <div className="overlay">
+          <div className="result-card">
+            <div className="hint" style={{ letterSpacing: '.2em' }}>
+              双方停手
+            </div>
+            <div className="result-text">数子</div>
+            {scorePreview ? (
+              <>
+                <div className="result-line">
+                  黑 {scorePreview.blackArea} 目 · 白 {scorePreview.whiteArea} + {scorePreview.komi} 目
+                </div>
+                <div className="result-line" style={{ fontSize: 16 }}>
+                  {scorePreview.winner === 'B'
+                    ? `黑胜 ${scorePreview.margin} 目`
+                    : scorePreview.winner === 'W'
+                      ? `白胜 ${scorePreview.margin} 目`
+                      : '和棋'}
+                </div>
+              </>
+            ) : (
+              <div className="result-line">正在数子…</div>
+            )}
+            <div className="hint" style={{ marginTop: 12 }}>
+              点棋盘上的死子可以标死/取消（已标 {deadStones.length} 子）
+            </div>
+            <div className="result-actions">
+              <button className="btn btn-primary" onClick={() => void doFinish()}>
+                确认结算
+              </button>
+              {caps.allowUndo && (
+                <button className="btn" onClick={() => void doUndo()}>
+                  撤销停手
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showResult && game?.status === 'finished' && game.result && (
+        <div className="overlay" onClick={() => setShowResult(false)}>
+          <div className="result-card" onClick={(e) => e.stopPropagation()}>
+            <div className="hint" style={{ letterSpacing: '.2em' }}>
+              {MODE_NAMES[mode]}
+            </div>
+            <div className="result-text">{game.result.text}</div>
+            {(settlement?.streak ?? 0) >= 2 && <div className="result-line">{cnNumber(settlement!.streak!)}连胜</div>}
+            {(settlement?.streak ?? 0) <= -2 && <div className="result-line">{cnNumber(settlement!.streak!)}连败</div>}
+            {settlement?.counted ? (
+              <div className="result-line">
+                已计入进度
+                {typeof settlement.deltaR === 'number' && settlement.deltaR !== 0
+                  ? ` · ${settlement.deltaR > 0 ? '+' : ''}${settlement.deltaR}`
+                  : ''}
+                {settlement.levelChange === 'up' ? ' · 升一级' : settlement.levelChange === 'down' ? ' · 降一级' : ''}
+              </div>
+            ) : (
+              <div className="result-line">{settlement?.reason ?? '这盘不计入进度'}</div>
+            )}
+            {settlement?.levelCn && <div className="result-line">{settlement.levelCn}</div>}
+            {settlement?.notes?.length ? <div className="hint">{settlement.notes.join('；')}</div> : null}
+
+            {settlement?.pendingPromotion && game.level < bootstrap.progress.maxLevel && (
+              <button
+                className="result-link"
+                onClick={() => {
+                  const target = Math.min(bootstrap.progress.maxLevel, game.level + 1);
+                  void startGame(target);
+                }}
+              >
+                可进一级 →
+              </button>
+            )}
+
+            <div className="result-actions">
+              <button className="btn" onClick={() => setShowResult(false)}>
+                复盘
+              </button>
+              <button className="btn btn-primary" onClick={() => void startGame(null)}>
+                再来一局
+              </button>
+              <button className="btn" onClick={() => void exit()}>
+                返回
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
