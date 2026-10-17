@@ -664,6 +664,56 @@ export class GameService extends EventEmitter {
     };
   }
 
+  // ------------------------------------------------------------ 题库（P4）
+
+  private tsumegoCache: { mtimeMs: number; list: TsumegoProblem[] } | null = null;
+
+  private loadTsumego(): TsumegoProblem[] {
+    const file = path.join(this.paths.data, 'tsumego', 'index.json');
+    try {
+      const stat = fs.statSync(file);
+      if (this.tsumegoCache && this.tsumegoCache.mtimeMs === stat.mtimeMs) return this.tsumegoCache.list;
+      const raw = JSON.parse(fs.readFileSync(file, 'utf8')) as { problems?: TsumegoProblem[] };
+      const list = Array.isArray(raw.problems) ? raw.problems : [];
+      this.tsumegoCache = { mtimeMs: stat.mtimeMs, list };
+      return list;
+    } catch {
+      return [];
+    }
+  }
+
+  listTsumego(): { id: string; title: string; level: string; size: number }[] {
+    return this.loadTsumego().map((p) => ({ id: p.id, title: p.title, level: p.level, size: p.size }));
+  }
+
+  getTsumego(id: string): Omit<TsumegoProblem, 'solutions' | 'capture'> {
+    const p = this.loadTsumego().find((x) => x.id === id);
+    if (!p) throw new ServiceError(404, '没有这道题');
+    return { id: p.id, title: p.title, level: p.level, size: p.size, komi: p.komi, toPlay: p.toPlay, grid: p.grid, hint: p.hint };
+  }
+
+  /** 判题：以"提子数达到 capture"为准（比坐标比对宽容，也不怕题目有多种下法） */
+  tryTsumego(id: string, vertex: number): { correct: boolean; captured: number; message: string } {
+    const p = this.loadTsumego().find((x) => x.id === id);
+    if (!p) throw new ServiceError(404, '没有这道题');
+    if (!Number.isInteger(vertex) || vertex < 0 || vertex >= p.size * p.size) {
+      throw new ServiceError(400, '落点不在棋盘上');
+    }
+    const setup = { black: [] as number[], white: [] as number[] };
+    p.grid.forEach((c, i) => {
+      if (c === 1) setup.black.push(i);
+      if (c === 2) setup.white.push(i);
+    });
+    const game = new Game({ size: p.size, komi: p.komi, toPlay: p.toPlay, setup });
+    const res = game.play(p.toPlay, vertex);
+    if (!res.ok) return { correct: false, captured: 0, message: res.message ?? '这一手不能下' };
+    const captured = res.captured?.length ?? 0;
+    if (captured >= p.capture) {
+      return { correct: true, captured, message: captured > 0 ? `正解：提掉 ${captured} 子` : '正解' };
+    }
+    return { correct: false, captured, message: captured > 0 ? `提了 ${captured} 子，还不够` : '没提到子，再找找白棋的气' };
+  }
+
   // ------------------------------------------------------------ 手谈（联机房间）
 
   createRoom(opts: { size?: BoardSize; komi?: number; name?: string; clientId: string }): RoomSeat {
@@ -861,4 +911,17 @@ export class GameService extends EventEmitter {
 /** 便于测试：不启动引擎的纯规则对局 */
 export function createBareGame(size: number, komi: number): Game {
   return new Game({ size, komi });
+}
+
+interface TsumegoProblem {
+  id: string;
+  title: string;
+  level: string;
+  size: BoardSize;
+  komi: number;
+  toPlay: Color;
+  grid: number[];
+  solutions: number[];
+  capture: number;
+  hint: string;
 }

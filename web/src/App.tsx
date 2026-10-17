@@ -3,15 +3,16 @@ import { api, type Bootstrap, type SocketEvent } from './api';
 import { GameView } from './modes/GameView';
 import { Menu } from './modes/Menu';
 import { LanView } from './modes/LanView';
+import { LearnView } from './modes/LearnView';
 import { Settings } from './Settings';
 import { configureSound } from './sound';
 import { SKINS, cssVars, skinById } from './theme/skins';
 import type { EngineStatus, Mode, ProgressView } from './types';
 
-type View = 'menu' | 'free' | 'ranked' | 'lan' | 'settings';
+type View = 'menu' | 'free' | 'ranked' | 'lan' | 'learn' | 'settings';
 
 const THEME_KEY = 'xingyi.theme';
-const VIEWS: View[] = ['menu', 'free', 'ranked', 'lan', 'settings'];
+const VIEWS: View[] = ['menu', 'free', 'ranked', 'lan', 'learn', 'settings'];
 
 /** 支持 ?view=free&theme=youth 直接进某个界面（截图与调试用，不影响正常使用） */
 function initialView(): View {
@@ -181,6 +182,7 @@ export function App() {
           engineReady={engineReady}
           onSelect={enter}
           onSettings={() => setView('settings')}
+          onLearn={() => setView('learn')}
         />
       )}
 
@@ -195,6 +197,7 @@ export function App() {
       )}
 
       {view === 'lan' && <LanView bootstrap={boot!} onBack={() => setView('menu')} />}
+      {view === 'learn' && <LearnView bootstrap={boot!} onBack={() => setView('menu')} />}
 
       {view === 'settings' && (
         <Settings

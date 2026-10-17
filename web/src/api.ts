@@ -119,6 +119,16 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ depth, assumeLevel }),
     }),
+  tsumegoList: () => req<{ problems: { id: string; title: string; level: string; size: number }[] }>('/api/tsumego'),
+  tsumegoGet: (id: string) =>
+    req<{ id: string; title: string; level: string; size: number; komi: number; toPlay: 'B' | 'W'; grid: number[]; hint: string }>(
+      `/api/tsumego/${id}`,
+    ),
+  tsumegoTry: (id: string, vertex: number) =>
+    req<{ correct: boolean; captured: number; message: string }>(`/api/tsumego/${id}/try`, {
+      method: 'POST',
+      body: JSON.stringify({ vertex }),
+    }),
   roomCreate: (p: { size?: 9 | 13 | 19; komi?: number; name?: string; clientId: string }) =>
     req<{ room: RoomView; color: Color | 'spectator' }>('/api/room', { method: 'POST', body: JSON.stringify(p) }),
   roomJoin: (code: string, p: { name?: string; clientId: string }) =>

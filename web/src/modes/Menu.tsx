@@ -5,9 +5,10 @@ interface MenuProps {
   engineReady: boolean;
   onSelect: (mode: Mode) => void;
   onSettings: () => void;
+  onLearn: () => void;
 }
 
-export function Menu({ progress, engineReady, onSelect, onSettings }: MenuProps) {
+export function Menu({ progress, engineReady, onSelect, onSettings, onLearn }: MenuProps) {
   const modes: { mode: Mode; disabled: boolean; note?: string }[] = [
     { mode: 'ranked', disabled: !engineReady, note: engineReady ? undefined : '需先配置引擎' },
     { mode: 'free', disabled: false },
@@ -42,6 +43,9 @@ export function Menu({ progress, engineReady, onSelect, onSettings }: MenuProps)
         </div>
 
         <div className="menu-foot">
+          <button className="linkish" onClick={onLearn}>
+            教学
+          </button>
           <button className="linkish" onClick={onSettings}>
             设置
           </button>

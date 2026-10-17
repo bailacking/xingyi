@@ -73,6 +73,17 @@ export function registerRoutes(app: FastifyInstance, service: GameService): void
     return { ...snapshotOf(match), opponent: match.opponent, isPlacement: false, examLevel: null };
   });
 
+  // ---------------- 题库（P4） ----------------
+
+  app.get('/api/tsumego', async () => ({ problems: service.listTsumego() }));
+
+  app.get<{ Params: { id: string } }>('/api/tsumego/:id', async (req) => service.getTsumego(req.params.id));
+
+  app.post<{ Params: { id: string } }>('/api/tsumego/:id/try', async (req) => {
+    const b = body<{ vertex?: number }>(req);
+    return service.tryTsumego(req.params.id, Number(b.vertex));
+  });
+
   // ---------------- 手谈（联机房间） ----------------
 
   app.post('/api/room', async (req) => {

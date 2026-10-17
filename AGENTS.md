@@ -42,9 +42,9 @@
 | 模块 | 状态 | 已实现 | 未实现 |
 |---|---|---|---|
 | **自在**（free） | 可玩 | 9/13/19 路对局；AI 或离线对手；悔棋、停一手、认输、终局数子；SGF 导入/导出；分析面板（候选点 + 胜率 + 目差）；形势图（F）；候选变化幽灵子；点一颗子整块标死 | 自由摆子编辑（AB/AW/AE 拖拽摆放）；目差曲线；沿分支逐手跳转；"假设对手水平"滑杆 |
-| **修习**（ranked） | 可玩（等级表已实测） | 3 盘自适应定级；前 10 盘暂定级；升降级（阈值按局部步长）+ 保级期 + 退级缓冲；跳档考核字段；`progress.json` + `.bak`；评级沙盘（设置页） | 跳档考核局 UI 未接；逐级独立校准误差仍 ±150~480 |
-| **手谈**（lan） | 未开始 | 仅 `Mode='lan'` 与 CAPS 占位 | 房间、发现、协议、观战、聊天全部未做 |
-| 教学 / 题库 | 未开始 | `data/tsumego/`、`data/joseki/` 空目录 | 交互式教学、死活判题、10 题测级 |
+| **修习**（ranked） | 可玩（等级表已实测） | 3 盘定级；暂定级；升降级（阈值按局部步长）；**跳档考核（升 1/2 级）**；防刷；`progress.json` + `.bak`；评级沙盘；**进度导出 JSON** | 逐级独立校准误差仍 ±150~480 |
+| **手谈**（lan） | 初版可用 | 房间码 6 位、创建/加入、观战、落子同步（1.2s 轮询）、悔棋需同意、聊天、认输、3 分钟超时、UDP 局域网自动发现 | 二维码、断线自动重连（clientId 可重进）、WS 推送（目前广播但不消费） |
+| 教学 / 题库 | 初版可用 | 2 课跟做（提子/角上的气）、10 道自建提子题（规则引擎逐题验证）、10 题测级给级别建议 | 定式练习、死活题库扩容（≥100 题）、AI 辅助判题 |
 | 主题 | 两套内置可用 | `walnut`（胡桃木，默认）+ `youth`（星弈·青）；即时切换 + 5 秒撤销 | 主题预览卡片；zip 导入导出；`style.css` 加载白名单 |
 | Electron | 未开始 | — | 换壳、窗口、图标、启动画面 |
 | 引擎 | 已接入真机 | GTP 串行客户端、分析流、三后端探测、五步自检、进程守护、离线对手 | 摆棋用的 `playoutDoublingAdvantage` 滑杆 |
@@ -310,6 +310,7 @@ K = baseK + RD / rdScale      （RD 大 → K 大 → 新号收敛快）
 | `ownership` 是 361 个 [-1,1]，行主序 A19→T1 | 前端形势图直接用 |
 | interval 单位是**厘秒** | 传 100 = 1 秒 |
 | 新命令会终止正在流式输出的分析 | 分析前先 `stopAnalysis()`；`send` 走串行队列 |
+| 摆子局面不能用 `play` 摆同色 | 写临时 SGF 用 `loadsgf`（`syncSetup`），之后必须清空 replay 缓存 |
 
 ### 9.5 human SL 的致命开关
 
@@ -365,6 +366,18 @@ node scripts/fit-ranks.mjs data/calibration/<stamp>.jsonl    # 保序回归 + �
 | POST | `/api/game/:id/quit` | 中途退出（ranked 算负） |
 | POST | `/api/game/:id/score` | `{dead: number[]}` 预览数子 |
 | POST | `/api/game/:id/finish` | `{dead}` 确认结算（ranked 写进度） |
+| POST | `/api/game/:id/redo` | 重做被悔掉的下一手 |
+| POST | `/api/game/:id/review` | 逐手复盘（好/一般/失误 + 胜率/目差曲线）；摆子棋谱暂不支持 |
+| POST | `/api/game/setup` | 摆子建局：`{size, grid, toPlay, komi}`（分析走 loadsgf） |
+| GET | `/api/progress/export` | 导出 JSON（存档 + 等级表） |
+| POST | `/api/tsumego/:id/try` | 判题：提子数达到 `capture` 即正解 |
+| GET | `/api/tsumego` / `/api/tsumego/:id` | 题库列表 / 单题（不含答案） |
+| POST | `/api/room` | 开房间（6 位码，创建者执黑） |
+| POST | `/api/room/:code/join` | 加入（第三人是观众） |
+| GET | `/api/room/:code` | 房间快照 + 聊天 |
+| POST | `/api/room/:code/action` | move/pass/resign/undo/undo-yes/undo-no/leave |
+| POST | `/api/room/:code/chat` | 聊天（不入库） |
+| GET | `/api/room/discover` | UDP 监听 1.2s，返回同网段房间 |
 | POST | `/api/game/:id/analyze` | `{depth?}`（quick/standard/deep = 5/6/8 候选，180~4200 ms）→ 候选 + ownership；未配置引擎返回 `available:false` + 原因 |
 | GET | `/api/game/:id/sgf` | 导出 SGF 文本 |
 | POST | `/api/sgf/import` | `{text}` → 新对局（按 `PL` 还原先后手） |
@@ -445,11 +458,11 @@ node scripts/fit-ranks.mjs data/calibration/<stamp>.jsonl    # 保序回归 + �
 | 阶段 | 内容 | 状态 |
 |---|---|---|
 | **P0** | 引擎跑通 + 分析流 + 规则引擎 + 15 级校准 | 完成；300 局实测，step=90（CI 50~131） |
-| **P1** | 自在：摆棋分析 | 大半；缺自由摆子编辑、目差曲线、逐手跳转 |
-| **P2** | 对 AI 下棋 + 复盘 | 对局与结算可用；缺逐手好/一般/失误标注、着法名、自动进复盘 |
-| **P3** | 修习：评级全流程 | 流程可跑；等级表已实测；缺跳档考核 UI |
-| **P4** | 教学 + 题库（≥1 套教学、≥100 题、10 题测级） | 未开始 |
-| **P5** | 手谈：局域网联机（发现 + 房间码 + 观战 + 聊天） | 未开始 |
+| **P1** | 自在：摆棋分析 | 完成（摆子编辑/分析、曲线、跳转、假设对手）；缺变化树编辑 |
+| **P2** | 对 AI 下棋 + 复盘 | 完成（逐手好/一般/失误 + 曲线 + 跳转 + 输棋自动复盘）；缺着法名与计时/让子 |
+| **P3** | 修习：评级全流程 | 完成（等级表实测、跳档考核、导出） |
+| **P4** | 教学 + 题库 | 初版：2 课 + 10 题 + 测级；题库未到 100 题 |
+| **P5** | 手谈：局域网联机 | 初版：房间码/加入/观战/聊天/悔棋同意/超时/自动发现；缺二维码与断线重连提示 |
 | **P6** | 主题：预览 + zip 导入导出 | 两套主题可用，其余未做 |
 | **P7** | Electron 换壳 | 未开始 |
 | **P8** | 开源发布：截图/GIF、CI、THIRD-PARTY 核验 | CI 与文档已有，其余待补 |

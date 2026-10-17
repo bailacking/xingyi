@@ -1037,3 +1037,9 @@ select:focus {
   color: var(--accent);
   white-space: nowrap;
 }
+
+/* 教学/题库选中态 */
+.room-item.is-active {
+  border-color: var(--accent);
+  box-shadow: inset 2px 0 0 var(--accent);
+}

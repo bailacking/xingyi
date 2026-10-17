@@ -318,6 +318,49 @@ describe('服务端 REST', () => {
     expect(res.statusCode).toBe(404);
   });
 
+  it('题库：列表、单题、判题（提子数达标算对）', async () => {
+    const dirT = path.join(paths.data, 'tsumego');
+    fs.mkdirSync(dirT, { recursive: true });
+    const grid = new Array(81).fill(0);
+    grid[idx(9, 4, 4)] = 2; // 白
+    grid[idx(9, 3, 4)] = 1;
+    grid[idx(9, 5, 4)] = 1;
+    grid[idx(9, 4, 3)] = 1;
+    fs.writeFileSync(
+      path.join(dirT, 'index.json'),
+      JSON.stringify({
+        version: 1,
+        problems: [
+          {
+            id: 'x1',
+            title: '测试题',
+            level: '入门',
+            size: 9,
+            komi: 7.5,
+            toPlay: 'B',
+            grid,
+            solutions: [idx(9, 4, 5)],
+            capture: 1,
+            hint: '找最后一口气',
+          },
+        ],
+      }),
+    );
+
+    const list = await app.inject({ method: 'GET', url: '/api/tsumego' });
+    expect(list.json().problems.length).toBe(1);
+    const one = await app.inject({ method: 'GET', url: '/api/tsumego/x1' });
+    expect(one.statusCode).toBe(200);
+    expect(one.json().toPlay).toBe('B');
+    const wrong = await app.inject({ method: 'POST', url: '/api/tsumego/x1/try', payload: { vertex: 0 } });
+    expect(wrong.json().correct).toBe(false);
+    const right = await app.inject({ method: 'POST', url: '/api/tsumego/x1/try', payload: { vertex: idx(9, 4, 5) } });
+    expect(right.json().correct).toBe(true);
+    expect(right.json().captured).toBe(1);
+    const missing = await app.inject({ method: 'GET', url: '/api/tsumego/nope' });
+    expect(missing.statusCode).toBe(404);
+  });
+
   it('修改名字写进进度', async () => {
     const res = await app.inject({ method: 'POST', url: '/api/progress/name', payload: { name: '大帅' } });
     expect(res.statusCode).toBe(200);
