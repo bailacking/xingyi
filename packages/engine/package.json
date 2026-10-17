@@ -11,11 +11,14 @@
       "default": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -b"
   },
   "dependencies": {
-    "@xingyi/shared": "0.1.0"
+    "@xingyi/shared": "0.1.0",
+    "@xingyi/rules": "0.1.0"
   }
 }
