@@ -120,6 +120,18 @@ npm run dev          # 同时起 Node 服务（7388）与前端（5173）
 npm run build && npm start   # 打开 http://127.0.0.1:7388
 ```
 
+### Windows 一键启动
+
+双击仓库根目录的 **`start.bat`**：检查 Node → 首次自动装依赖 → 起服务 → 打开浏览器。
+关掉窗口即停止。
+
+```bat
+start.bat         :: 开发模式（服务 7388 + 前端 5173，改代码即时生效）
+start.bat prod    :: 生产模式（先构建，只跑 7388 一个端口）
+```
+
+> 批处理文件必须保持 **CRLF** 换行（`.gitattributes` 已锁定），否则 `goto`/标签会解析错、脚本一闪就退。
+
 > 为什么用 npm 而不是 pnpm：planner 里写的是 pnpm，但「别人必须能跑起来」这条硬约束优先——
 > npm 随 Node 自带，少一步安装。workspaces 能力等价。
 
