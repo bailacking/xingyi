@@ -289,6 +289,13 @@ K = baseK + RD / rdScale      （RD 大 → K 大 → 新号收敛快）
 > 12 级以上必须切主模型：官方警告 human SL 在高段不保证真实强度（它几乎不搜索）。
 > 同级 AI 强度固定（只随机开局），保证"你的进步"可比较。
 
+**⚠️ 1~11 级的 `maxVisits` 目前对选点几乎无效**：当前用 `humanSLChosenMoveProp=1` +
+`humanSLChosenMovePiklLambda=1e8`，官方配置注释明确说这种组合下搜索被忽略（只影响 pass/resign），
+`maxVisits` 调多少都不会改变棋力。档位强度实际只由 `humanSLProfile` 决定。
+要让 visits 生效得换一组旋钮（官方 `gtp_human9d_search_example.cfg`：`PiklLambda≈0.08`、
+`humanSLRootExploreProbWeightless=0.8`、`maxVisits 400`、`chosenMoveTemperature*`、
+`staticScoreUtilityFactor=0.5`）。校准数据与结论见 `docs/评级说明.md` §八。
+
 ### 9.4 GTP 协议要点（全部实测，不是文档推测）
 
 | 事实 | 后果 |
