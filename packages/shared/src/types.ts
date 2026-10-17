@@ -183,6 +183,32 @@ export interface AnalysisCandidate {
   pv: string[];
 }
 
+/** 复盘：一手棋的评价 */
+export type ReviewLabel = 'good' | 'normal' | 'mistake' | 'unknown';
+
+export interface ReviewPoint {
+  /** 第几手（1 起；0 表示开局前，不用于复盘点） */
+  ply: number;
+  /** 黑方胜率（已从"行棋方视角"换算） */
+  winrateBlack: number | null;
+  /** 黑方目差（正=黑领先） */
+  scoreLeadBlack: number | null;
+  /** 这一手相对最佳着法损失了多少目 */
+  loss: number | null;
+  /** 胜率损失（0..1，按落子方视角） */
+  lossWinrate: number | null;
+  label: ReviewLabel;
+}
+
+export interface ReviewResult {
+  size: BoardSize;
+  komi: number;
+  points: ReviewPoint[];
+  summary: { good: number; normal: number; mistake: number; unknown: number };
+  /** 是否因为盘面太长而截断 */
+  truncated: boolean;
+}
+
 export interface AnalysisResult {
   /** 分析时轮到谁 */
   turn: Color;

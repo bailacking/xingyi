@@ -7,6 +7,7 @@ import type {
   HardwareReport,
   Mode,
   ProgressView,
+  ReviewResult,
   Settlement,
 } from './types';
 
@@ -105,6 +106,10 @@ export const api = {
     }>(`/api/game/${id}/score`, { method: 'POST', body: JSON.stringify({ dead }) }),
   finish: (id: string, dead: number[]) =>
     req<GameResponse>(`/api/game/${id}/finish`, { method: 'POST', body: JSON.stringify({ dead }) }),
+  review: (id: string) =>
+    req<{ available: true; result: ReviewResult } | { available: false; reason: string }>(`/api/game/${id}/review`, {
+      method: 'POST',
+    }),
   analyze: (id: string, depth?: string) =>
     req<AnalyzeResponse>(`/api/game/${id}/analyze`, { method: 'POST', body: JSON.stringify({ depth }) }),
   importSgf: (text: string) =>

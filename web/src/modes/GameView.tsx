@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { gtpToVertex } from '@xingyi/shared';
-import { Board as RulesBoard } from '@xingyi/rules';
+import { Board as RulesBoard, Game } from '@xingyi/rules';
 import { Board } from '../board/Board';
 import { api, ApiError, type Bootstrap, type GameResponse, type SocketEvent } from '../api';
 import { AnalysisPanel } from '../panels/AnalysisPanel';
 import { MoveList } from '../panels/MoveList';
+import { ReviewPanel } from '../panels/ReviewPanel';
 import { playBell, playStone } from '../sound';
 import {
   CAPS,
@@ -17,6 +18,7 @@ import {
   type AnalysisResult,
   type GameSnapshot,
   type Mode,
+  type ReviewResult,
 } from '../types';
 import type { Settlement } from '../types';
 
@@ -52,6 +54,9 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showResult, setShowResult] = useState(false);
+  const [review, setReview] = useState<{ result: ReviewResult; ply: number } | null>(null);
+  const [reviewing, setReviewing] = useState(false);
+  const autoReviewed = useRef(false);
   const [setup, setSetup] = useState({
     size: bootstrap.config.game.boardSize,
     level: Math.min(8, bootstrap.progress.maxLevel),
@@ -91,6 +96,9 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
       setAnalysisReason(null);
       setDeadStones([]);
       setScorePreview(null);
+      setReview(null);
+      setReviewing(false);
+      autoReviewed.current = false;
       try {
         const res = await api.newGame(
           mode === 'ranked'
@@ -112,6 +120,32 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
     },
     [applyResponse, mode, setup.level, setup.playerColor, setup.size],
   );
+
+  const startReview = useCallback(async () => {
+    const g = gameRef.current;
+    if (!g) return;
+    setReviewing(true);
+    setError(null);
+    try {
+      const res = await api.review(g.id);
+      if (res.available) {
+        setReview({ result: res.result, ply: res.result.points.length });
+        setShowResult(false);
+      } else setError(res.reason);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : '复盘失败');
+    } finally {
+      setReviewing(false);
+    }
+  }, []);
+
+  // 输了自动进复盘（可以随时退出）
+  useEffect(() => {
+    if (review || reviewing || autoReviewed.current) return;
+    if (!game || game.status !== 'finished' || settlement?.won !== false) return;
+    autoReviewed.current = true;
+    void startReview();
+  }, [game?.status, settlement?.won, review, reviewing, startReview]);
 
   useEffect(() => {
     void startGame(null);
@@ -291,6 +325,18 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
     return out;
   }, [hoverPv, game]);
 
+  // 复盘时按手数回放，不动服务端对局
+  const replay = useMemo(() => {
+    if (!review || !game) return null;
+    const g = new Game({ size: game.size, komi: game.komi });
+    const n = Math.min(review.ply, game.moves.length);
+    for (let i = 0; i < n; i++) {
+      const mv = game.moves[i]!;
+      g.play(mv.color, mv.vertex);
+    }
+    return { grid: Array.from(g.board.grid), lastMove: n > 0 ? game.moves[n - 1]!.vertex : null };
+  }, [review, game]);
+
   const humanTurn = Boolean(
     game && game.status === 'playing' && !game.aiThinking && (opponent === 'human' || game.toPlay === game.playerColor),
   );
@@ -313,6 +359,13 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'f' || e.key === 'F') setShowOwnership((v) => !v);
       if (e.key === 'Escape') setShowResult(false);
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        setReview((r) => {
+          if (!r) return r;
+          const next = r.ply + (e.key === 'ArrowRight' ? 1 : -1);
+          return { ...r, ply: Math.max(0, Math.min(r.result.points.length, next)) };
+        });
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -393,17 +446,17 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
           {game ? (
             <Board
               size={game.size}
-              grid={game.grid}
-              lastMove={game.lastMove}
-              ownership={analysis?.ownership ?? null}
-              showOwnership={showOwnership && caps.showWinrate}
-              ghost={ghost}
+              grid={replay ? replay.grid : game.grid}
+              lastMove={replay ? replay.lastMove : game.lastMove}
+              ownership={replay ? null : (analysis?.ownership ?? null)}
+              showOwnership={!replay && showOwnership && caps.showWinrate}
+              ghost={replay ? null : ghost}
               hoverMark={bootstrap.config.ui.hoverMark}
-              deadStones={game.status === 'scoring' ? deadStones : []}
-              interactive={humanTurn}
+              deadStones={!replay && game.status === 'scoring' ? deadStones : []}
+              interactive={humanTurn && !review}
               onPlace={(v) => void play(v)}
               onToggleDead={
-                game.status === 'scoring'
+                !review && game.status === 'scoring'
                   ? (v) => {
                       // 点一颗子 = 整块一起标死（玩家不会一块棋点五下）
                       const group = new RulesBoard(game.size, game.grid).groupAt(v).stones;
@@ -527,6 +580,21 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
           {!caps.allowUndo && <div className="hint" style={{ marginTop: 8 }}>{CAP_NOTES.allowUndo}。</div>}
         </section>
 
+        {reviewing && !review && (
+          <div className="notice">
+            正在复盘：引擎要逐手重算一遍，19 路大约 1~3 分钟，可以先去倒杯水。
+          </div>
+        )}
+
+        {review && game ? (
+          <ReviewPanel
+            result={review.result}
+            ply={review.ply}
+            moves={game.moves}
+            onPick={(ply) => setReview((r) => (r ? { ...r, ply } : r))}
+            onExit={() => setReview(null)}
+          />
+        ) : (
         <AnalysisPanel
           caps={caps}
           analysis={analysis}
@@ -543,8 +611,9 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
             setHoverPv(cand);
           }}
           onPick={(v) => void play(v)}
-          canPlay={humanTurn}
+          canPlay={humanTurn && !review}
         />
+        )}
 
         <MoveList
           size={game?.size ?? 19}
@@ -594,8 +663,8 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
             )}
 
             <div className="result-actions">
-              <button className="btn" onClick={() => setShowResult(false)}>
-                复盘
+              <button className="btn" onClick={() => void startReview()} disabled={reviewing}>
+                {reviewing ? '复盘计算中…' : '复盘'}
               </button>
               <button className="btn btn-primary" onClick={() => void startGame(null)}>
                 再来一局

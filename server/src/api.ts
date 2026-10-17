@@ -106,6 +106,8 @@ export function registerRoutes(app: FastifyInstance, service: GameService): void
     return service.analyze(req.params.id, b.depth);
   });
 
+  app.post<{ Params: { id: string } }>('/api/game/:id/review', async (req) => service.review(req.params.id));
+
   app.get<{ Params: { id: string } }>('/api/game/:id/sgf', async (req, reply: FastifyReply) => {
     const m = service.getMatch(req.params.id);
     const sgf = toSgf({

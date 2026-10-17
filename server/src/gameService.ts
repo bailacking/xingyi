@@ -14,6 +14,8 @@ import {
   type EngineStatus,
   type HardwareReport,
   type Mode,
+  type ReviewPoint,
+  type ReviewResult,
   type Vertex,
 } from '@xingyi/shared';
 import { Game } from '@xingyi/rules';
@@ -497,6 +499,86 @@ export class GameService extends EventEmitter {
     });
     if (!result) return { available: false, reason: '引擎这次没给出结果（超时或局面异常），再试一次' };
     return { available: true, result };
+  }
+
+  /**
+   * 复盘：逐手看"这一手比最佳着法亏了多少目"。
+   * 每一手都分析**落子前**的局面（轮到落子方），用候选里最佳与实下着的 scoreLead 差算损失，
+   * 这样两边视角一致，不用在相邻局面之间换算出符号错误。
+   */
+  async review(id: string): Promise<
+    { available: true; result: ReviewResult } | { available: false; reason: string }
+  > {
+    const m = this.getMatch(id);
+    if (!this.engine.ready) {
+      return { available: false, reason: '引擎未就绪：在「设置 → 引擎」完成配置后才能复盘' };
+    }
+    if (m.game.setup.black.length || m.game.setup.white.length) {
+      return { available: false, reason: '带摆子的棋谱暂不支持复盘（引擎还不认摆子局面）' };
+    }
+    const moves = m.moveList();
+    if (moves.length === 0) return { available: false, reason: '这盘还没有着手，没什么可复盘的' };
+
+    // 逐局面评估（n+1 次），再比较前后两个局面的黑方目差——比"候选里找实下着"稳，
+    // 低段 AI 常常把实下着排在前 8 之外，那种做法会大量 unknown。
+    const LIMIT = 200;
+    const limit = Math.min(moves.length, LIMIT);
+    const evals: { lead: number | null; wr: number | null }[] = [];
+    for (let k = 0; k <= limit; k++) {
+      const turn: Color = k === 0 ? 'B' : moves[k - 1]!.color === 'B' ? 'W' : 'B';
+      const res = await this.engine.analyze({
+        size: m.size,
+        komi: m.game.komi,
+        moves: moves.slice(0, k),
+        turn,
+        level: 15,
+        visits: 120,
+        minDurationMs: 80,
+        maxDurationMs: 300,
+        maxMoves: 1,
+        intervalMs: 80,
+      });
+      const best = res?.candidates[0];
+      // cfg: reportAnalysisWinratesAs=BLACK → winrate / scoreLead 都是黑方视角
+      evals.push({ lead: best ? best.scoreLead : null, wr: best ? best.winrate : null });
+    }
+
+    const points: ReviewPoint[] = [];
+    const summary = { good: 0, normal: 0, mistake: 0, unknown: 0 };
+    for (let i = 0; i < limit; i++) {
+      const mv = moves[i]!;
+      const before = evals[i]!;
+      const after = evals[i + 1]!;
+      let loss: number | null = null;
+      let lossWr: number | null = null;
+      if (before.lead !== null && after.lead !== null) {
+        const delta = after.lead - before.lead; // 黑方目差变化
+        loss = Math.max(0, mv.color === 'B' ? -delta : delta);
+        loss = Math.round(loss * 10) / 10;
+      }
+      if (before.wr !== null && after.wr !== null) {
+        const dwr = mv.color === 'B' ? before.wr - after.wr : after.wr - before.wr;
+        lossWr = Math.round(Math.max(0, dwr) * 1000) / 1000;
+      }
+      // 用目差判档：胜率在"已经输定"时会饱和（一直 0%，后面下多臭都不掉），目差不会
+      const scale = m.size === 19 ? 1 : m.size === 13 ? 0.7 : 0.5;
+      const label: ReviewPoint['label'] =
+        loss === null ? 'unknown' : loss <= 1 * scale ? 'good' : loss <= 3 * scale ? 'normal' : 'mistake';
+      summary[label] += 1;
+      points.push({
+        ply: i + 1,
+        winrateBlack: before.wr,
+        scoreLeadBlack: before.lead,
+        loss,
+        lossWinrate: lossWr,
+        label,
+      });
+    }
+
+    return {
+      available: true,
+      result: { size: m.size, komi: m.game.komi, points, summary, truncated: moves.length > limit },
+    };
   }
 
   // ------------------------------------------------------------ 导入

@@ -908,3 +908,72 @@ select:focus {
     min-height: 46vh;
   }
 }
+
+/* ---------- 复盘 ---------- */
+.review-chart {
+  width: 100%;
+  height: auto;
+  display: block;
+  margin: 6px 0 2px;
+  background: var(--surface-alt);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+
+.review-legend {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  font-size: 11px;
+  color: var(--text-dim);
+  flex-wrap: wrap;
+}
+.review-legend .is-good { color: var(--ok); }
+.review-legend .is-normal { color: var(--text-dim); }
+.review-legend .is-bad { color: var(--danger); }
+.review-legend .hint { margin-left: auto; }
+
+.review-summary {
+  display: flex;
+  gap: 14px;
+  margin: 10px 0 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.review-summary b { color: var(--text); font-size: 14px; margin-left: 3px; }
+.review-summary .is-bad b { color: var(--danger); }
+
+.review-current {
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  padding: 6px 0;
+  margin-bottom: 8px;
+}
+
+.review-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(30px, 1fr));
+  gap: 4px;
+  max-height: 190px;
+  overflow-y: auto;
+}
+
+.review-chip {
+  font: inherit;
+  font-size: 11px;
+  padding: 3px 0;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--surface-alt);
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.review-chip.is-good { border-color: color-mix(in srgb, var(--ok) 45%, var(--line)); color: var(--ok); }
+.review-chip.is-normal { color: var(--text); }
+.review-chip.is-bad { border-color: color-mix(in srgb, var(--danger) 55%, var(--line)); color: var(--danger); }
+.review-chip.is-unknown { opacity: 0.6; }
+.review-chip.is-active {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  color: var(--text);
+}
