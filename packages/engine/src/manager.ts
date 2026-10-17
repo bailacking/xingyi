@@ -71,7 +71,7 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 /**
  * 引擎门面：进程守护 + 状态机 + 局面同步 + 分析节流。
- * 对弈与分析共用同一个进程，**请求串行**（PLAN §5 进程模型）。
+ * 对弈与分析共用同一个进程，**请求串行**（AGENTS.md §5）。
  */
 export class EngineManager extends EventEmitter {
   private config: EngineConfig;
@@ -188,7 +188,7 @@ export class EngineManager extends EventEmitter {
     return this.start();
   }
 
-  /** 三步向导要用的逐项校验（PLAN §18.1）。 */
+  /** 三步向导要用的逐项校验（AGENTS.md §10）。 */
   async selfCheck(): Promise<CheckResult> {
     const steps: CheckStep[] = [];
     const binaryOk = Boolean(this.config.binaryPath && fs.existsSync(this.config.binaryPath));
@@ -356,7 +356,7 @@ export class EngineManager extends EventEmitter {
   }
 
   /**
-   * 实时分析：`kata-analyze` 是异步流，收到任何新命令即终止（PLAN §7.3）。
+   * 实时分析：`kata-analyze` 是异步流，收到任何新命令即终止（AGENTS.md §9.4）。
    * 拿到第一版有 visit 的结果就返回，兼顾"≤300ms 出结果"。
    */
   async analyze(req: AnalyzeRequest): Promise<AnalysisResult | null> {

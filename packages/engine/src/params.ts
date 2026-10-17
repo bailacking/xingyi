@@ -1,7 +1,7 @@
 import type { Backend } from '@xingyi/shared';
 
 /**
- * 15 级 → 引擎参数（PLAN §8）。
+ * 15 级 → 引擎参数（AGENTS.md §9.3）。
  *
  * ⚠️ 1~11 级用 human SL 模型（`rank_*` = 现代人类开局风格）；
  * 官方警告：human SL 在高段不保证真实强度（它几乎不搜索），所以 12 级起切主模型限 visits。

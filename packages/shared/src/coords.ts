@@ -77,7 +77,7 @@ export function coordLabel(size: number, v: Vertex): string {
 
 const CN_DIGITS = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
 
-/** 正文写法：1 → 一级，12 → 十二级（PLAN §11.2）。 */
+/** 正文写法：1 → 一级，12 → 十二级（AGENTS.md §1 术语）。 */
 export function levelCn(level: number): string {
   const n = Math.max(0, Math.floor(level));
   if (n <= 10) return n === 10 ? '十级' : `${CN_DIGITS[n]}级`;

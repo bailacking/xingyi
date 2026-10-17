@@ -11,7 +11,7 @@
 |---|---|---|---|
 | [KataGo](https://github.com/lightvector/KataGo) | 围棋引擎（用户自行安装，不随仓库分发） | MIT | ⚠️ 待核实 |
 | KataGo 神经网络权重 | AI 模型（用户自行下载，不随仓库分发） | 以官方发布页说明为准 | ⚠️ 待核实 |
-| [Sabaki](https://github.com/SabakiHQ/Sabaki) 生态：`@sabaki/shudan` / `@sabaki/sgf` / `@sabaki/go-board` / `@sabaki/immutable-gametree` | 棋盘渲染、棋谱解析、盘面逻辑、变体树 | MIT（记得如此） | ⚠️ 待核实 |
+| ~~Sabaki 生态（`@sabaki/shudan` / `@sabaki/sgf` / `@sabaki/go-board`）~~ | **当前未使用**：棋盘为自绘 SVG，SGF 解析与盘面逻辑均自研；仅早期设计参考过其思路 | — | 已移除依赖（2026-10-17） |
 | [Fastify](https://github.com/fastify/fastify) | HTTP 服务 | MIT | ⚠️ 待核实 |
 | [ws](https://github.com/websockets/ws) | WebSocket（联机） | MIT | ⚠️ 待核实 |
 | [React](https://github.com/facebook/react) | 前端框架 | MIT | ⚠️ 待核实 |

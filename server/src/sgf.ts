@@ -7,7 +7,7 @@ import {
   type Vertex,
 } from '@xingyi/shared';
 
-/** SGF 节点：属性 + 子节点（变体）。PLAN D8：数据结构从第一行代码起就是树。 */
+/** SGF 节点：属性 + 子节点（变体）。数据结构从第一行代码起就是树。 */
 export interface SgfNode {
   properties: Record<string, string[]>;
   children: SgfNode[];
@@ -179,7 +179,7 @@ export interface SgfExportInput {
   comment?: string;
 }
 
-/** 导出主线棋谱；摆子用 AB/AW（保证 Sabaki / Lizzie 能打开，PLAN §12）。 */
+/** 导出主线棋谱；摆子用 AB/AW（保证 Sabaki / Lizzie 能打开，AGENTS.md §13）。 */
 export function toSgf(input: SgfExportInput): string {
   const head: string[] = [
     'GM[1]',

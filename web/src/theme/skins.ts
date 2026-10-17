@@ -3,7 +3,7 @@ import type { ThemeTokens } from '@xingyi/shared';
 const SERIF = '"Source Han Serif SC", "Noto Serif SC", "Songti SC", "STSong", SimSun, serif';
 const SANS = '"Source Han Sans SC", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif';
 
-/** 胡桃木（典雅，默认）：米白宣纸 + 深胡桃木 + 细金线（PLAN §11.1） */
+/** 胡桃木（典雅，默认）：米白宣纸 + 深胡桃木 + 细金线（AGENTS.md §12） */
 export const walnut: ThemeTokens = {
   color: {
     bg: '#F7F4EE',

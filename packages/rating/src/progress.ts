@@ -2,7 +2,7 @@ import { PROGRESS_SCHEMA_VERSION, type Mode } from '@xingyi/shared';
 import { RATING_PARAMS, updateRating, type RatingUpdate } from './glicko.js';
 import { ratingOf, type RankTable } from './levels.js';
 
-/** 定级赛：3 盘自适应二分（PLAN §3.3）。 */
+/** 定级赛：3 盘自适应二分（AGENTS.md §8）。 */
 export interface PlacementState {
   /** 已下盘数 0..3 */
   stage: number;
@@ -85,7 +85,7 @@ export function createProgress(playerName = '无名', maxLevel = 15, now = new D
   };
 }
 
-/** 定级赛下一局的对手级：赢取上整、输取下整（PLAN §3.3 的表）。 */
+/** 定级赛下一局的对手级：赢取上整、输取下整（AGENTS.md §8 的定级赛表）。 */
 export function placementNextLevel(state: PlacementState, maxLevel: number): number {
   const mid = (state.lo + state.hi) / 2;
   let next = Math.round(mid);
@@ -158,7 +158,7 @@ export interface RankedOutcome {
   notes: string[];
 }
 
-/** 升级/降级/跳档判定（PLAN §3.4）。 */
+/** 升级/降级/跳档判定（AGENTS.md §8 的升降级阈值）。 */
 export function evaluateLevel(p: Progress, ranks: RankTable): {
   promote: boolean;
   demote: boolean;

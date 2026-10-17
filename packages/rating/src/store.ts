@@ -8,7 +8,7 @@ export function loadProgressFile(file: string, maxLevel = 15): Progress | null {
     const text = fs.readFileSync(file, 'utf8');
     return normalizeProgress(JSON.parse(text), maxLevel);
   } catch {
-    // 主档坏了试 .bak（PLAN §3.7 / D72）
+    // 主档坏了试 .bak（AGENTS.md §13）
     try {
       const bak = fs.readFileSync(`${file}.bak`, 'utf8');
       return normalizeProgress(JSON.parse(bak), maxLevel);

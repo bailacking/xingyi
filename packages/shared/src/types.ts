@@ -1,6 +1,6 @@
 /**
  * 全局共享类型：前后端唯一事实来源。
- * 修改前先读 PLAN.md 第 2、3、10 章，别在这里加"顺手"的字段。
+ * 修改前先读 AGENTS.md §6（不变量），别在这里加"顺手"的字段。
  */
 
 export type Color = 'B' | 'W';
@@ -16,7 +16,7 @@ export const PASS: Vertex = -1;
 export const DEFAULT_KOMI = 7.5;
 export const BOARD_SIZES: BoardSize[] = [9, 13, 19];
 
-/** 模式 = 能力门禁（PLAN §2）。所有界面控件读这张表，禁止散落 if (mode === ...)。 */
+/** 模式 = 能力门禁（AGENTS.md §6）。所有界面控件读这张表，禁止散落 if (mode === ...)。 */
 export interface Caps {
   /** 显示胜率 / 目差 */
   showWinrate: boolean;
@@ -292,6 +292,6 @@ export interface ThemePack {
   builtin: boolean;
   tokens: ThemeTokens;
   variants: ThemeVariants;
-  /** 可选 CSS 文本；禁止 @import 与远程 URL（PLAN §11.9） */
+  /** 可选 CSS 文本；禁止 @import 与远程 URL（AGENTS.md §12） */
   css?: string;
 }
