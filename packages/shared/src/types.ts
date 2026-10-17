@@ -162,6 +162,8 @@ export interface GameSnapshot {
   deadStones?: Vertex[];
   score?: ScoreDetail;
   aiThinking?: boolean;
+  /** 还有被悔掉的棋可以重做 */
+  canRedo?: boolean;
   createdAt: string;
   updatedAt: string;
 }

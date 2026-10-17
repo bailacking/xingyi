@@ -425,7 +425,11 @@ export function Settings({ bootstrap, themeId, onTheme, onBack, onBootstrap }: S
             >
               保存名字
             </button>
+            <a className="btn" href="/api/progress/export" download="xingyi-progress.json">
+              导出进度
+            </a>
           </div>
+          <div className="hint">导出的是 JSON（存档 + 等级表），换机器时留个备份。不自动导入。</div>
         </section>
 
         <section className="panel">

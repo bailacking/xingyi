@@ -45,6 +45,8 @@ export class Match {
   updatedAt: string;
 
   aiThinking = false;
+  /** 悔棋之后被撤回的着法，按顺序重做 */
+  redo: { color: Color; vertex: Vertex }[] = [];
   result?: GameResult;
   score?: ScoreDetail;
   /** 结算后由 GameService 填 */
@@ -125,6 +127,7 @@ export class Match {
       deadStones: this.game.deadStones,
       score: this.score,
       aiThinking: this.aiThinking,
+      canRedo: this.redo.length > 0,
       createdAt: this.createdAt,
       updatedAt: this.updatedAt,
     };

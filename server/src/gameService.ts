@@ -247,6 +247,7 @@ export class GameService extends EventEmitter {
     const color = m.opponent === 'human' ? m.game.toPlay : m.playerColor;
     const res = m.game.play(color, vertex);
     if (!res.ok) throw new ServiceError(400, res.message ?? '这一手不能下');
+    m.redo = [];
     m.touch();
     this.emit('game', m.snapshot());
     if (m.aiToMove()) void this.runAi(m);
@@ -261,10 +262,28 @@ export class GameService extends EventEmitter {
     const m = this.getMatch(id);
     if (!CAPS[m.mode].allowUndo) throw new ServiceError(403, '修习模式不允许悔棋');
     const target = Number.isFinite(toPly) ? Number(toPly) : Math.max(0, m.game.ply - 1);
-    m.game.undoTo(target);
+    const from = Math.max(0, Math.min(target, m.game.ply));
+    const removed = m.game.moves.slice(from);
+    m.game.undoTo(from);
+    m.redo = [...removed, ...m.redo];
     m.result = undefined;
     m.score = undefined;
     m.settlement = undefined;
+    m.touch();
+    this.emit('game', m.snapshot());
+    if (m.aiToMove()) void this.runAi(m);
+    return m;
+  }
+
+  redo(id: string): Match {
+    const m = this.getMatch(id);
+    if (!CAPS[m.mode].allowUndo) throw new ServiceError(403, '修习模式不允许重做');
+    const next = m.redo[0];
+    if (!next) throw new ServiceError(400, '没有可重做的着法');
+    if (next.color !== m.game.toPlay) throw new ServiceError(400, '重做顺序对不上，先重试一步');
+    const res = m.game.play(next.color, next.vertex);
+    if (!res.ok) throw new ServiceError(400, '这一手已经不能重做了');
+    m.redo.shift();
     m.touch();
     this.emit('game', m.snapshot());
     if (m.aiToMove()) void this.runAi(m);
@@ -478,7 +497,11 @@ export class GameService extends EventEmitter {
 
   // ------------------------------------------------------------ 分析
 
-  async analyze(id: string, depth?: 'quick' | 'standard' | 'deep'): Promise<
+  async analyze(
+    id: string,
+    depth?: 'quick' | 'standard' | 'deep',
+    assumeLevel?: number | null,
+  ): Promise<
     { available: true; result: AnalysisResult } | { available: false; reason: string }
   > {
     const m = this.getMatch(id);
@@ -493,8 +516,13 @@ export class GameService extends EventEmitter {
       komi: m.game.komi,
       moves: m.moveList(),
       turn: m.game.toPlay,
+      setup:
+        m.game.setup.black.length || m.game.setup.white.length
+          ? { black: [...m.game.setup.black], white: [...m.game.setup.white] }
+          : undefined,
       // 分析一律用主模型；访问量由分析档位单独给（不用等级表里的 visits）
       level: 15,
+      assumeLevel: assumeLevel ?? null,
       ...preset,
     });
     if (!result) return { available: false, reason: '引擎这次没给出结果（超时或局面异常），再试一次' };
@@ -630,6 +658,17 @@ export class GameService extends EventEmitter {
       maxLevel: this.ranks.maxLevel,
       nextLevelRating: p.level < this.ranks.maxLevel ? ratingOf(this.ranks, p.level + 1) : null,
       ranksCalibrated: this.ranks.calibrated,
+    };
+  }
+
+  /** 导出进度：存档 + 等级表，换机器时导入用（当前只导出，不自动导入） */
+  exportProgress(): { app: string; schemaVersion: number; exportedAt: string; progress: unknown; ranks: unknown } {
+    return {
+      app: 'xingyi',
+      schemaVersion: this.progress.schemaVersion,
+      exportedAt: new Date().toISOString(),
+      progress: this.progress,
+      ranks: { step: this.ranks.step, stepCi95: this.ranks.stepCi95, levels: this.ranks.levels },
     };
   }
 

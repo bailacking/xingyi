@@ -977,3 +977,19 @@ select:focus {
   outline-offset: 1px;
   color: var(--text);
 }
+
+/* 摆棋工具条 */
+.editor-bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  margin: 0 0 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-alt);
+}
+.editor-bar .hint {
+  margin-right: 4px;
+}

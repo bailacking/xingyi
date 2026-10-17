@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { APP_NAME, APP_NAME_EN, APP_VERSION, CAPS, type Mode } from '@xingyi/shared';
+import { APP_NAME, APP_NAME_EN, APP_VERSION, BOARD_SIZES, CAPS, type Mode } from '@xingyi/shared';
 import { toSgf } from './sgf.js';
 import { GameService, ServiceError } from './gameService.js';
 
@@ -61,6 +61,17 @@ export function registerRoutes(app: FastifyInstance, service: GameService): void
     };
   });
 
+  app.post('/api/game/setup', async (req) => {
+    const b = body<{ size: 9 | 13 | 19; grid: number[]; toPlay?: 'B' | 'W'; komi?: number }>(req);
+    if (!BOARD_SIZES.includes(b.size)) throw new ServiceError(400, '只支持 9 / 13 / 19 路');
+    if (!Array.isArray(b.grid) || b.grid.length !== b.size * b.size) {
+      throw new ServiceError(400, '盘面数据不完整');
+    }
+    if (b.grid.some((c) => c !== 0 && c !== 1 && c !== 2)) throw new ServiceError(400, '盘面里只有黑白空三种格子');
+    const match = service.createFromSetup(b.size, b.grid, b.toPlay ?? 'B', b.komi ?? 7.5);
+    return { ...snapshotOf(match), opponent: match.opponent, isPlacement: false, examLevel: null };
+  });
+
   app.get('/api/matches', async () => service.listMatches());
 
   app.get<{ Params: { id: string } }>('/api/game/:id', async (req) => {
@@ -82,6 +93,8 @@ export function registerRoutes(app: FastifyInstance, service: GameService): void
     return snapshotOf(service.undo(req.params.id, b.to));
   });
 
+  app.post<{ Params: { id: string } }>('/api/game/:id/redo', async (req) => snapshotOf(service.redo(req.params.id)));
+
   app.post<{ Params: { id: string } }>('/api/game/:id/end', async (req) => snapshotOf(service.endGame(req.params.id)));
 
   app.post<{ Params: { id: string } }>('/api/game/:id/resign', async (req) =>
@@ -102,8 +115,8 @@ export function registerRoutes(app: FastifyInstance, service: GameService): void
   });
 
   app.post<{ Params: { id: string } }>('/api/game/:id/analyze', async (req) => {
-    const b = body<{ depth?: 'quick' | 'standard' | 'deep' }>(req);
-    return service.analyze(req.params.id, b.depth);
+    const b = body<{ depth?: 'quick' | 'standard' | 'deep'; assumeLevel?: number | null }>(req);
+    return service.analyze(req.params.id, b.depth, b.assumeLevel ?? null);
   });
 
   app.post<{ Params: { id: string } }>('/api/game/:id/review', async (req) => service.review(req.params.id));
@@ -131,6 +144,12 @@ export function registerRoutes(app: FastifyInstance, service: GameService): void
   });
 
   app.get('/api/progress', async () => service.progressSummary());
+
+  app.get('/api/progress/export', async (_req, reply: FastifyReply) => {
+    reply.header('content-type', 'application/json; charset=utf-8');
+    reply.header('content-disposition', 'attachment; filename="xingyi-progress.json"');
+    return service.exportProgress();
+  });
 
   app.post('/api/simulate/ranked', async (req) => {
     const b = body<{ pattern?: 'win' | 'alternate' | 'lose'; games?: number; startLevel?: number }>(req);

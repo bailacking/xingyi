@@ -88,6 +88,7 @@ export const api = {
   move: (id: string, vertex: number) =>
     req<GameResponse>(`/api/game/${id}/move`, { method: 'POST', body: JSON.stringify({ vertex }) }),
   pass: (id: string) => req<GameResponse>(`/api/game/${id}/pass`, { method: 'POST' }),
+  redo: (id: string) => req<GameResponse>(`/api/game/${id}/redo`, { method: 'POST' }),
   undo: (id: string, to?: number) =>
     req<GameResponse>(`/api/game/${id}/undo`, { method: 'POST', body: JSON.stringify(to === undefined ? {} : { to }) }),
   endGame: (id: string) => req<GameResponse>(`/api/game/${id}/end`, { method: 'POST' }),
@@ -110,8 +111,13 @@ export const api = {
     req<{ available: true; result: ReviewResult } | { available: false; reason: string }>(`/api/game/${id}/review`, {
       method: 'POST',
     }),
-  analyze: (id: string, depth?: string) =>
-    req<AnalyzeResponse>(`/api/game/${id}/analyze`, { method: 'POST', body: JSON.stringify({ depth }) }),
+  analyze: (id: string, depth?: string, assumeLevel?: number | null) =>
+    req<AnalyzeResponse>(`/api/game/${id}/analyze`, {
+      method: 'POST',
+      body: JSON.stringify({ depth, assumeLevel }),
+    }),
+  newSetupGame: (p: { size: 9 | 13 | 19; grid: number[]; toPlay?: 'B' | 'W'; komi?: number }) =>
+    req<GameResponse>('/api/game/setup', { method: 'POST', body: JSON.stringify(p) }),
   importSgf: (text: string) =>
     req<GameResponse>('/api/sgf/import', { method: 'POST', body: JSON.stringify({ text }) }),
   sgfUrl: (id: string) => `/api/game/${id}/sgf`,

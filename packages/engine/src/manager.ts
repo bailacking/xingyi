@@ -1,7 +1,9 @@
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import type { AnalysisResult, Backend, Color, EngineStatus, Vertex } from '@xingyi/shared';
-import { PASS, gtpToVertex, vertexToGtp } from '@xingyi/shared';
+import { PASS, gtpToVertex, vertexToGtp, vertexToSgf } from '@xingyi/shared';
 import { GtpSession } from './gtp.js';
 import { buildGtpArgs, levelParams, type EngineSpawnConfig } from './params.js';
 import { createAccumulator, feedLine, finalizeCandidates } from './analyze.js';
@@ -63,6 +65,8 @@ export interface AnalyzeRequest {
   maxDurationMs?: number;
   intervalMs?: number;
   maxMoves?: number;
+  /** 摆子局面（引擎不认"同色连下"，只能走 loadsgf 载入） */
+  setup?: { black: number[]; white: number[] };
   /** 本次分析的访问量上限（不传则用该级默认值） */
   visits?: number;
   /** 假设对手水平（playoutDoublingAdvantage），null = 同水平 */
@@ -262,6 +266,33 @@ export class EngineManager extends EventEmitter {
     return { ok, steps, version: this.version, models, humanSL };
   }
 
+  /**
+   * 摆子局面：GTP 没有办法"同色连下"，写一份 SGF 用 loadsgf 载入。
+   * 文件放临时目录，loadsgf 之后就可以删（引擎已读进内存），这里留着也无害。
+   */
+  private async syncSetup(
+    size: number,
+    komi: number,
+    setup: { black: number[]; white: number[] },
+    moves: MoveLike[],
+    toPlay: Color,
+  ): Promise<void> {
+    const session = this.session;
+    if (!session) throw new Error('引擎未启动');
+    const stones = (arr: number[]): string => arr.map((v) => `[${vertexToSgf(size, v)}]`).join('');
+    let sgf = `(;GM[1]FF[4]CA[UTF-8]SZ[${size}]KM[${komi}]PL[${toPlay}]`;
+    if (setup.black.length) sgf += `AB${stones(setup.black)}`;
+    if (setup.white.length) sgf += `AW${stones(setup.white)}`;
+    for (const m of moves) sgf += `;${m.color}[${m.vertex === PASS ? '' : vertexToSgf(size, m.vertex)}]`;
+    sgf += ')';
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'xingyi-pos-'));
+    const file = path.join(dir, 'pos.sgf');
+    fs.writeFileSync(file, sgf, 'utf8');
+    await session.sendNow(`loadsgf ${file}`, 15000);
+    // 加载后引擎盘面与"逐手 replay"的缓存不再一致，下次走 replay 前必须重建
+    this.synced = null;
+  }
+
   private async syncPosition(size: number, komi: number, moves: MoveLike[]): Promise<void> {
     const session = this.session;
     if (!session) throw new Error('引擎未启动');
@@ -380,6 +411,7 @@ export class EngineManager extends EventEmitter {
       maxDurationMs = 1600,
       intervalMs = 100,
       maxMoves = 6,
+      setup,
       visits,
       assumeLevel = null,
     } = req;
@@ -389,7 +421,11 @@ export class EngineManager extends EventEmitter {
       const started = Date.now();
       const acc = createAccumulator(size, turn);
       try {
-        await this.syncPosition(size, komi, moves);
+        if (setup && (setup.black.length > 0 || setup.white.length > 0)) {
+          await this.syncSetup(size, komi, setup, moves, turn);
+        } else {
+          await this.syncPosition(size, komi, moves);
+        }
         await this.applyLevelParams(level, assumeLevel);
         if (typeof visits === 'number' && visits > 0) {
           await this.tryCmd(`kata-set-param maxVisits ${Math.round(visits)}`);

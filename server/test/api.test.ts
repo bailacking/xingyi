@@ -214,6 +214,63 @@ describe('服务端 REST', () => {
     expect(after.gamesTotal).toBe(before.gamesTotal);
   });
 
+  it('摆子建局：格子里有黑白，分析前不需要引擎', async () => {
+    const grid = new Array(81).fill(0);
+    grid[idx(9, 2, 2)] = 1;
+    grid[idx(9, 2, 3)] = 1;
+    grid[idx(9, 6, 6)] = 2;
+    const res = await app.inject({ method: 'POST', url: '/api/game/setup', payload: { size: 9, grid, toPlay: 'B' } });
+    expect(res.statusCode).toBe(200);
+    const snap = res.json().snapshot;
+    expect(snap.size).toBe(9);
+    expect(snap.grid.filter((c: number) => c !== 0).length).toBe(3);
+    expect(snap.playerColor).toBe('B');
+  });
+
+  it('摆子建局会拒绝残缺盘面', async () => {
+    const res = await app.inject({ method: 'POST', url: '/api/game/setup', payload: { size: 9, grid: [0, 1] } });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('悔棋之后能重做，重做栈空了再重做报错', async () => {
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/game',
+      payload: { mode: 'free', size: 9, playerColor: 'B', level: 2 },
+    });
+    const id = created.json().snapshot.id as string;
+    // 同机对手（human）不会自动应手，方便断言
+    const setup = await app.inject({
+      method: 'POST',
+      url: '/api/game/setup',
+      payload: { size: 9, grid: new Array(81).fill(0), toPlay: 'B' },
+    });
+    const sid = setup.json().snapshot.id as string;
+    await app.inject({ method: 'POST', url: `/api/game/${sid}/move`, payload: { vertex: idx(9, 4, 4) } });
+    const undone = await app.inject({ method: 'POST', url: `/api/game/${sid}/undo`, payload: {} });
+    expect(undone.statusCode).toBe(200);
+    expect(undone.json().snapshot.canRedo).toBe(true);
+    const redone = await app.inject({ method: 'POST', url: `/api/game/${sid}/redo` });
+    expect(redone.statusCode).toBe(200);
+    expect(redone.json().snapshot.moves.length).toBe(1);
+    const again = await app.inject({ method: 'POST', url: `/api/game/${sid}/redo` });
+    expect(again.statusCode).toBe(400);
+    void id;
+  });
+
+  it('没有着手时复盘给出中文原因', async () => {
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/game',
+      payload: { mode: 'free', size: 9, playerColor: 'B', level: 2 },
+    });
+    const id = created.json().snapshot.id as string;
+    const res = await app.inject({ method: 'POST', url: `/api/game/${id}/review` });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().available).toBe(false);
+    expect(String(res.json().reason)).toMatch(/引擎|着手|复盘/);
+  });
+
   it('修改名字写进进度', async () => {
     const res = await app.inject({ method: 'POST', url: '/api/progress/name', payload: { name: '大帅' } });
     expect(res.statusCode).toBe(200);

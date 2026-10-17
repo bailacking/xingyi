@@ -40,11 +40,11 @@ export function AnalysisPanel(props: AnalysisPanelProps) {
       ) : (
         <>
           <div className="stat-row">
-            <span className="stat-key">胜率</span>
+            <span className="stat-key">黑方胜率</span>
             <span className="stat-val">{winrate === null ? '—' : `${winrate}%`}</span>
           </div>
           <div className="stat-row">
-            <span className="stat-key">目差</span>
+            <span className="stat-key">黑方目差</span>
             <span className="stat-val" style={{ color: lead !== null && lead < 0 ? 'var(--danger)' : undefined }}>
               {lead === null ? '—' : `${lead > 0 ? '+' : ''}${lead}`}
             </span>
