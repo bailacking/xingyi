@@ -620,7 +620,7 @@ my-theme/
 ## 14. 目录结构
 
 ```
-D:\workspace\xingyi\
+D:\project\xingyi\
 ├─ PLAN.md  README.md  LICENSE  THIRD-PARTY.md  .gitignore
 ├─ package.json                (pnpm workspace 根)
 ├─ .github/workflows/ci.yml
