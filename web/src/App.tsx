@@ -3,7 +3,7 @@ import { api, type Bootstrap, type SocketEvent } from './api';
 import { GameView } from './modes/GameView';
 import { LanPlaceholder, Menu } from './modes/Menu';
 import { Settings } from './Settings';
-import { setSoundEnabled } from './sound';
+import { configureSound } from './sound';
 import { SKINS, cssVars, skinById } from './theme/skins';
 import type { EngineStatus, Mode, ProgressView } from './types';
 
@@ -47,7 +47,7 @@ export function App() {
       const b = await api.bootstrap();
       setBoot(b);
       setFatal(null);
-      setSoundEnabled(b.config.ui.sound);
+      configureSound({ enabled: b.config.ui.sound, pack: b.config.ui.soundPack, volume: b.config.ui.soundVolume });
       const fromQuery = new URLSearchParams(location.search).get('theme');
       if (!fromQuery && !localStorage.getItem(THEME_KEY) && b.config.ui.themeId) setThemeId(b.config.ui.themeId);
     } catch {
@@ -203,7 +203,7 @@ export function App() {
           onBack={() => setView('menu')}
           onBootstrap={(b) => {
             setBoot(b);
-            setSoundEnabled(b.config.ui.sound);
+            configureSound({ enabled: b.config.ui.sound, pack: b.config.ui.soundPack, volume: b.config.ui.soundVolume });
           }}
         />
       )}

@@ -20,7 +20,7 @@ export type PlayError =
 const ERROR_TEXT: Record<PlayError, string> = {
   finished: '对局已结束',
   occupied: '该点已有棋子',
-  suicide: '不能自杀（多子提子后即可落此处）',
+  suicide: '这是自杀点：落下去自己的棋没有气',
   superko: '全局同形禁着（劫）',
   out_of_range: '落点超出棋盘',
   not_your_turn: '还没轮到你',
@@ -132,8 +132,7 @@ export class Game {
     if (!isValidVertex(this.size, vertex))
       return { ok: false, error: 'out_of_range', message: ERROR_TEXT.out_of_range };
     if (this.board.at(vertex) !== 0) return { ok: false, error: 'occupied', message: ERROR_TEXT.occupied };
-    if (this.board.isSuicide(color, vertex))
-      return { ok: false, error: 'suicide', message: ERROR_TEXT.suicide };
+    // 合法性以「真落一手」为准：提子腾出的气、并上自己人的气，都在 place 里算准
     const copy = this.board.clone();
     const res = copy.place(color, vertex);
     if (res.suicide) return { ok: false, error: 'suicide', message: ERROR_TEXT.suicide };

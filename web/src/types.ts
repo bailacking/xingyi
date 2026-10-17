@@ -40,6 +40,8 @@ export interface AppConfigLike {
   ui: {
     themeId: string;
     sound: boolean;
+    soundPack: 'jade' | 'porcelain' | 'wood';
+    soundVolume: number;
     showOwnership: boolean;
     analysisDepth: 'quick' | 'standard' | 'deep';
     playerColor: 'B' | 'W';

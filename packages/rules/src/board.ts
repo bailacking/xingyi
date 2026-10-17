@@ -85,23 +85,17 @@ export class Board {
     return { stones, liberties: libs };
   }
 
-  /** 该点在给定颜色下是否为自杀（未考虑劫）。 */
+  /**
+   * 该点在给定颜色下是否为自杀（未考虑劫）。
+   *
+   * 唯一正确的判法就是**照着落一手看结果**：既要算提掉对方后腾出的气，
+   * 也要算连上自己人后共用的气。手写"有没有空邻点/能不能提子"会漏掉
+   * 「落子接上自己那块还有外气的棋」——那是最常见的合法点（接、刺、挖）。
+   */
   isSuicide(color: Color, v: Vertex): boolean {
-    const code = colorCode(color);
     if (this.at(v) !== EMPTY) return false;
-    const opp = colorCode(opposite(color));
-    const nb: Vertex[] = [];
-    neighbors(this.size, v, nb);
-    // 有直接空地 → 不自杀
-    for (const n of nb) if (this.grid[n] === EMPTY) return false;
-    // 相邻敌块只剩这一口气 → 提掉后自己有气
-    for (const n of nb) {
-      if (this.grid[n] === opp) {
-        const g = this.groupAt(n);
-        if (g.liberties.length === 1) return false;
-      }
-    }
-    return true;
+    const copy = this.clone();
+    return copy.place(color, v).suicide;
   }
 
   /**

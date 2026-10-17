@@ -15,6 +15,10 @@ export interface AppConfig {
   ui: {
     themeId: string;
     sound: boolean;
+    /** 音色：玉石 / 青瓷 / 木石 */
+    soundPack: 'jade' | 'porcelain' | 'wood';
+    /** 音量 0..1 */
+    soundVolume: number;
     showOwnership: boolean;
     /** 分析深度档：quick / standard / deep */
     analysisDepth: 'quick' | 'standard' | 'deep';
@@ -42,6 +46,8 @@ export const DEFAULT_CONFIG: AppConfig = {
   ui: {
     themeId: 'walnut',
     sound: true,
+    soundPack: 'jade',
+    soundVolume: 0.75,
     showOwnership: false,
     analysisDepth: 'standard',
     playerColor: 'B',

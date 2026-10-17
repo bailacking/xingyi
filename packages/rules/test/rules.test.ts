@@ -83,6 +83,58 @@ describe('提子', () => {
   });
 });
 
+describe('自杀判定的边界（回归：刺/接被误判）', () => {
+  it('落子接上自己还有外气的棋 → 合法', () => {
+    // 目标点 (2,2) 四邻全是子：左是黑（另有两口气），上/右/下是白
+    const size = 9;
+    const b = new Board(size);
+    b.set(idx(size, 1, 2), 1);
+    b.set(idx(size, 2, 1), 2);
+    b.set(idx(size, 3, 2), 2);
+    b.set(idx(size, 2, 3), 2);
+    expect(b.isSuicide('B', idx(size, 2, 2))).toBe(false);
+    const g = new Game({ size, komi: 7.5, toPlay: 'B' });
+    g.board.set(idx(size, 1, 2), 1);
+    g.board.set(idx(size, 2, 1), 2);
+    g.board.set(idx(size, 3, 2), 2);
+    g.board.set(idx(size, 2, 3), 2);
+    expect(g.play('B', idx(size, 2, 2)).ok).toBe(true);
+  });
+
+  it('四面被白围死且无己方接应 → 仍是自杀', () => {
+    const size = 9;
+    const b = new Board(size);
+    b.set(idx(size, 2, 1), 2);
+    b.set(idx(size, 1, 2), 2);
+    b.set(idx(size, 3, 2), 2);
+    b.set(idx(size, 2, 3), 2);
+    expect(b.isSuicide('B', idx(size, 2, 2))).toBe(true);
+  });
+
+  it('随机对局 200 手：盘上任何一块棋都不可能是零气', () => {
+    const g = new Game({ size: 9, komi: 7.5 });
+    let seed = 20261017;
+    const rnd = (): number => {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      return seed / 0x7fffffff;
+    };
+    for (let i = 0; i < 200 && g.status === 'playing'; i++) {
+      const legal = g.board.legalMoves(g.toPlay).filter((v) => g.preview(g.toPlay, v).ok);
+      if (legal.length === 0) {
+        g.play(g.toPlay, PASS);
+        continue;
+      }
+      const res = g.play(g.toPlay, legal[Math.floor(rnd() * legal.length)]!);
+      expect(res.ok).toBe(true);
+      for (let p = 0; p < 81; p++) {
+        if (g.board.at(p) !== 0) {
+          expect(g.board.groupAt(p).liberties.length).toBeGreaterThan(0);
+        }
+      }
+    }
+  });
+});
+
 describe('劫与 superko', () => {
   it('简单劫：回提被位置超劫禁止', () => {
     const g = new Game({

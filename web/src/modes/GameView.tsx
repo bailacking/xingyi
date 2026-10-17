@@ -60,6 +60,18 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
   const gameRef = useRef<GameSnapshot | null>(null);
   gameRef.current = game;
 
+  // 落子音：只认"盘面多了一颗子"，不管是人下的还是 WS 推来的（撤子不响）
+  const prevSnap = useRef<GameSnapshot | null>(null);
+  useEffect(() => {
+    const prev = prevSnap.current;
+    prevSnap.current = game;
+    if (!game || !prev || prev.id !== game.id) return;
+    const count = (g: GameSnapshot): number => g.grid.reduce((a, b) => a + (b ? 1 : 0), 0);
+    const added = count(game) - count(prev);
+    const capDelta = game.captures.B + game.captures.W - (prev.captures.B + prev.captures.W);
+    if (added > 0) playStone(capDelta > 0);
+  }, [game]);
+
   const applyResponse = useCallback((res: GameResponse) => {
     setGame(res.snapshot);
     if (res.opponent) setOpponent(res.opponent);
@@ -111,9 +123,6 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
     if (!lastEvent || lastEvent.type !== 'game') return;
     const snap = lastEvent.data as GameSnapshot;
     if (!snap?.id || snap.id !== gameRef.current?.id) return;
-    const before = gameRef.current?.grid.reduce((a, b) => a + (b ? 1 : 0), 0) ?? 0;
-    const after = snap.grid.reduce((a, b) => a + (b ? 1 : 0), 0);
-    if (after > before) playStone(snap.captures.B + snap.captures.W > 0);
     setGame(snap);
   }, [lastEvent]);
 
@@ -189,7 +198,6 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
     try {
       const res = await api.move(game.id, vertex);
       applyResponse(res);
-      playStone(false);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : '落子失败');
     } finally {

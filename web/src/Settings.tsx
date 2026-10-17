@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { api, ApiError, type Bootstrap } from './api';
+import { SOUND_PACKS, configureSound, previewPack } from './sound';
 import { SKINS, cssVars, type Skin } from './theme/skins';
 import type { AppConfigLike } from './types';
 
@@ -310,12 +311,64 @@ export function Settings({ bootstrap, themeId, onTheme, onBack, onBootstrap }: S
               onChange={(e) => {
                 const on = e.target.value === 'on';
                 setUi({ ...ui, sound: on });
+                configureSound({ enabled: on });
                 void save({ ui: { ...ui, sound: on } });
               }}
             >
               <option value="on">开（落子、提子、终局磬）</option>
               <option value="off">关</option>
             </select>
+          </div>
+          <div className="field">
+            <label>音色</label>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              {SOUND_PACKS.map((pack) => (
+                <button
+                  key={pack.id}
+                  className={`btn${ui.soundPack === pack.id ? ' btn-primary' : ''}`}
+                  onClick={() => {
+                    setUi({ ...ui, soundPack: pack.id });
+                    configureSound({ enabled: true, pack: pack.id });
+                    previewPack(pack.id);
+                    void save({ ui: { ...ui, soundPack: pack.id } });
+                  }}
+                  title={pack.hint}
+                >
+                  {pack.name}
+                </button>
+              ))}
+              <button className="btn" onClick={() => previewPack(ui.soundPack)}>
+                试听
+              </button>
+            </div>
+          </div>
+          <div className="field">
+            <label>音量</label>
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                value={Math.round(ui.soundVolume * 100)}
+                onChange={(e) => {
+                  const v = Number(e.target.value) / 100;
+                  setUi({ ...ui, soundVolume: v });
+                  configureSound({ volume: v });
+                }}
+                onMouseUp={(e) => {
+                  const v = Number((e.target as HTMLInputElement).value) / 100;
+                  void save({ ui: { ...ui, soundVolume: v } });
+                }}
+                style={{ flex: 1, accentColor: 'var(--accent)' }}
+              />
+              <span className="hint" style={{ minWidth: 34, textAlign: 'right' }}>
+                {Math.round(ui.soundVolume * 100)}
+              </span>
+            </div>
+          </div>
+          <div className="hint" style={{ marginTop: 4 }}>
+            {SOUND_PACKS.find((p) => p.id === ui.soundPack)?.hint ?? ''}
+            　· 音效全部由程序现场合成（零版权素材），不用下载音频文件。
           </div>
           <div className="field">
             <label>分析深度</label>
