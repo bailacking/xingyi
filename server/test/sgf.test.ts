@@ -48,6 +48,13 @@ describe('SGF', () => {
     expect(parsed.playerBlack).toBe('a]b\\c');
   });
 
+  it('读 PL 属性决定谁先走；摆子局面默认白先', () => {
+    expect(parseSgf('(;GM[1]SZ[9]PL[W];B[ee])').firstPlayer).toBe('W');
+    expect(parseSgf('(;GM[1]SZ[9];B[ee])').firstPlayer).toBe('B');
+    const setupOnly = parseSgf('(;GM[1]SZ[9]AB[ee][cc])');
+    expect(setupOnly.firstPlayer).toBe('W');
+  });
+
   it('空内容给出明确错误', () => {
     expect(() => parseSgf('')).toThrow();
   });

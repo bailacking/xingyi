@@ -497,6 +497,7 @@ export class GameService extends EventEmitter {
       playerColor: 'B',
       opponent: 'human',
       setup: parsed.setup,
+      toPlay: parsed.firstPlayer,
     });
     const warnings: string[] = [];
     let illegal = 0;
@@ -538,6 +539,61 @@ export class GameService extends EventEmitter {
     this.cfg.playerName = clean;
     saveConfig(this.paths.configFile, this.cfg);
     this.saveProgress();
+  }
+
+  /**
+   * 评级沙盘：在**存档副本**上跑 N 盘，回放等级/分数变化。
+   * 用途：等级校准分还没实测之前，让用户先判断"升降级手感"合不合理。
+   * 绝不写 progress.json。
+   */
+  simulateRanked(opts: { pattern: 'win' | 'alternate' | 'lose'; games: number; startLevel?: number }): {
+    start: { level: number; R: number; RD: number };
+    timeline: { game: number; won: boolean; R: number; deltaR: number; level: number; change: 'up' | 'down' | null; pending: boolean }[];
+    end: { level: number; R: number; RD: number; levelCn: string };
+  } {
+    const total = Math.min(60, Math.max(1, Math.round(opts.games || 10)));
+    const level = Math.min(this.ranks.maxLevel, Math.max(1, Math.round(opts.startLevel ?? this.progress.level)));
+    const p: Progress = structuredClone(this.progress);
+    p.placement.done = true;
+    p.level = level;
+    p.R = ratingOf(this.ranks, level);
+    p.RD = 220;
+    p.levelGames = 0;
+    p.levelWins = 0;
+    p.streak = 0;
+    p.protection = 0;
+    p.demotionBuffer = 0;
+    p.promotionCooldown = 0;
+    p.provisional = p.gamesTotal < 10;
+    p.history = [];
+    const start = { level: p.level, R: p.R, RD: p.RD };
+    const timeline = [];
+    for (let i = 0; i < total; i++) {
+      const won =
+        opts.pattern === 'win' ? true : opts.pattern === 'lose' ? false : i % 3 !== 2;
+      const out = applyRankedGame(p, {
+        won,
+        scoreDiff: won ? 8 : -8,
+        moves: 180,
+        ranks: this.ranks,
+        now: new Date(Date.now() + i * 1000),
+      });
+      p.history = [];
+      timeline.push({
+        game: i + 1,
+        won,
+        R: Math.round(p.R * 10) / 10,
+        deltaR: out.rating.deltaR,
+        level: p.level,
+        change: out.change,
+        pending: out.pendingPromotion,
+      });
+    }
+    return {
+      start,
+      timeline,
+      end: { level: p.level, R: Math.round(p.R * 10) / 10, RD: Math.round(p.RD * 10) / 10, levelCn: levelCn(p.level) },
+    };
   }
 
   /** 仅供开发/演示：重置进度（需要显式 confirmation 字符串） */

@@ -21,7 +21,9 @@ body {
 }
 
 .app-shell {
-  min-height: 100%;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
   background: var(--bg);
   color: var(--text);
   font-family: var(--font-body);
@@ -115,6 +117,8 @@ body {
 
 .menu {
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   display: grid;
   place-items: center;
   padding: 48px 24px;
@@ -217,6 +221,7 @@ body {
 }
 
 .linkish {
+  white-space: nowrap;
   background: none;
   border: none;
   color: var(--text-dim);
@@ -235,6 +240,7 @@ body {
 
 .game {
   flex: 1;
+  min-height: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 336px;
   gap: 22px;
@@ -247,6 +253,7 @@ body {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  overflow: hidden;
 }
 
 .topbar {
@@ -261,6 +268,7 @@ body {
   font-size: 20px;
   letter-spacing: 0.3em;
   text-indent: 0.3em;
+  white-space: nowrap;
 }
 
 .topbar .grow {
@@ -289,13 +297,18 @@ body {
   padding: 4px;
 }
 
-.board-svg {
-  width: min(100%, 100cqh);
+.board-frame {
+  position: relative;
+  max-width: 100%;
   max-height: 100%;
-  aspect-ratio: 1;
-  display: block;
   border-radius: var(--radius-md);
   filter: drop-shadow(0 10px 26px rgba(0, 0, 0, 0.16));
+}
+
+.board-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
 }
 
 .board-svg.is-locked {
@@ -316,8 +329,10 @@ body {
 }
 
 .seal {
-  width: 42px;
-  height: 42px;
+  width: 46px;
+  height: 46px;
+  flex: none;
+  aspect-ratio: 1;
   border: 2px solid var(--seal);
   border-radius: var(--radius-sm);
   color: var(--seal);
@@ -601,6 +616,7 @@ body {
 
 .settings {
   flex: 1;
+  min-height: 0;
   padding: 26px clamp(18px, 6vw, 90px) 60px;
   overflow-y: auto;
 }
@@ -743,6 +759,8 @@ select:focus {
   grid-template-columns: repeat(5, 1fr);
   gap: 3px;
   padding: 8px;
+  width: min(152px, 100%);
+  margin: 0 auto;
   border-radius: var(--pv-radius);
   background: var(--pv-board);
   border: 1px solid var(--pv-edge);
@@ -843,9 +861,9 @@ select:focus {
     overflow: visible;
   }
   .seal {
-    width: 34px;
-    height: 34px;
-    font-size: 11px;
+    width: 36px;
+    height: 36px;
+    font-size: 10px;
   }
   .move-list {
     max-height: 130px;
@@ -855,5 +873,38 @@ select:focus {
   }
   .mode-name {
     font-size: 22px;
+  }
+}
+
+@media (max-width: 640px) {
+  .topbar {
+    flex-wrap: wrap;
+    gap: 8px;
+    row-gap: 10px;
+  }
+  .topbar .brand {
+    font-size: 16px;
+    letter-spacing: 0.18em;
+    text-indent: 0.18em;
+  }
+  .topbar select {
+    width: auto !important;
+    min-width: 74px;
+    padding: 6px 6px;
+    font-size: 12px;
+  }
+  .topbar .btn {
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+  .topbar .badge {
+    font-size: 11px;
+    padding: 3px 7px;
+  }
+  .seals {
+    gap: 12px;
+  }
+  .board-column {
+    min-height: 46vh;
   }
 }

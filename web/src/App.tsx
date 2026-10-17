@@ -10,11 +10,24 @@ import type { EngineStatus, Mode, ProgressView } from './types';
 type View = 'menu' | 'free' | 'ranked' | 'lan' | 'settings';
 
 const THEME_KEY = 'xingyi.theme';
+const VIEWS: View[] = ['menu', 'free', 'ranked', 'lan', 'settings'];
+
+/** 支持 ?view=free&theme=youth 直接进某个界面（截图与调试用，不影响正常使用） */
+function initialView(): View {
+  const v = new URLSearchParams(location.search).get('view');
+  return v && VIEWS.includes(v as View) ? (v as View) : 'menu';
+}
+
+function initialTheme(): string {
+  const q = new URLSearchParams(location.search).get('theme');
+  if (q && SKINS.some((s) => s.id === q)) return q;
+  return localStorage.getItem(THEME_KEY) ?? 'walnut';
+}
 
 export function App() {
   const [boot, setBoot] = useState<Bootstrap | null>(null);
-  const [view, setView] = useState<View>('menu');
-  const [themeId, setThemeId] = useState<string>(() => localStorage.getItem(THEME_KEY) ?? 'walnut');
+  const [view, setView] = useState<View>(initialView);
+  const [themeId, setThemeId] = useState<string>(initialTheme);
   const [lastEvent, setLastEvent] = useState<SocketEvent | null>(null);
   const [fatal, setFatal] = useState<string | null>(null);
   const [toast, setToast] = useState<{ text: string; undo?: () => void } | null>(null);
@@ -35,7 +48,8 @@ export function App() {
       setBoot(b);
       setFatal(null);
       setSoundEnabled(b.config.ui.sound);
-      if (!localStorage.getItem(THEME_KEY) && b.config.ui.themeId) setThemeId(b.config.ui.themeId);
+      const fromQuery = new URLSearchParams(location.search).get('theme');
+      if (!fromQuery && !localStorage.getItem(THEME_KEY) && b.config.ui.themeId) setThemeId(b.config.ui.themeId);
     } catch {
       setFatal('连不上本地服务。请确认 `npm run dev` 的 server 那一半在跑（默认 7388 端口）。');
     }
@@ -198,15 +212,6 @@ export function App() {
         <div className="toast">
           <span>{toast.text}</span>
           {toast.undo && <button onClick={toast.undo}>撤销</button>}
-        </div>
-      )}
-
-      {!engineReady && view !== 'settings' && (
-        <div
-          className="stage-note"
-          style={{ position: 'fixed', right: 14, bottom: 10, padding: 0, fontSize: 11, opacity: 0.7 }}
-        >
-          引擎未就绪 · 可用离线对手 · 当前主题：{SKINS.find((s) => s.id === themeId)?.name}
         </div>
       )}
     </div>

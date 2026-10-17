@@ -26,6 +26,8 @@ export interface ParsedSgf {
   /** 变体分支数量（>0 说明棋谱带变化图） */
   variationCount: number;
   result: string | null;
+  /** 轮到谁下（SGF 的 PL 属性；缺省按黑先 / 摆子白先） */
+  firstPlayer: Color;
 }
 
 class SgfReader {
@@ -148,6 +150,9 @@ export function parseSgf(text: string): ParsedSgf {
     node = node.children[0];
   }
 
+  const plRaw = (p.PL?.[0] ?? '').toUpperCase();
+  const firstPlayer: Color = plRaw === 'W' ? 'W' : plRaw === 'B' ? 'B' : setup.black.length > 0 && setup.white.length === 0 ? 'W' : 'B';
+
   return {
     root,
     size,
@@ -159,6 +164,7 @@ export function parseSgf(text: string): ParsedSgf {
     setup,
     variationCount,
     result: p.RE?.[0] ?? null,
+    firstPlayer,
   };
 }
 

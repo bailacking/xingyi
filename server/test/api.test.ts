@@ -149,6 +149,23 @@ describe('服务端 REST', () => {
     expect(sgf.body).toContain('SZ[9]');
   });
 
+  it('评级沙盘：连赢 12 盘会升几级，且不动存档', async () => {
+    const before = (await app.inject({ method: 'GET', url: '/api/progress' })).json();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/simulate/ranked',
+      payload: { pattern: 'win', games: 12 },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.timeline.length).toBe(12);
+    expect(body.end.level).toBeGreaterThan(body.start.level);
+    expect(body.timeline.every((g: { deltaR: number }) => g.deltaR > 0)).toBe(true);
+    const after = (await app.inject({ method: 'GET', url: '/api/progress' })).json();
+    expect(after.level).toBe(before.level);
+    expect(after.gamesTotal).toBe(before.gamesTotal);
+  });
+
   it('修改名字写进进度', async () => {
     const res = await app.inject({ method: 'POST', url: '/api/progress/name', payload: { name: '大帅' } });
     expect(res.statusCode).toBe(200);

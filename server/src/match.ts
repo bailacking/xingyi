@@ -22,6 +22,8 @@ export interface MatchInit {
   opponent: Opponent;
   handicap?: number;
   setup?: { black: Vertex[]; white: Vertex[] };
+  /** 谁先走（导入棋谱时按 PL 还原） */
+  toPlay?: Color;
   /** 定级赛对局 */
   isPlacement?: boolean;
   /** 跳档考核局 */
@@ -62,7 +64,7 @@ export class Match {
       komi: init.komi,
       handicap: init.handicap,
       setup: init.setup,
-      toPlay: 'B',
+      toPlay: init.toPlay ?? 'B',
     });
     this.createdAt = new Date().toISOString();
     this.updatedAt = this.createdAt;

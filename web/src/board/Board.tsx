@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { GTP_LETTERS, starPoints } from '@xingyi/shared';
 
 const VIEW = 1000;
@@ -24,6 +24,26 @@ export interface BoardProps {
 export function Board(props: BoardProps) {
   const { size, grid, lastMove, ownership, showOwnership, ghost, deadStones, interactive, onPlace, onToggleDead } = props;
   const [hover, setHover] = useState<number | null>(null);
+  const frameRef = useRef<HTMLDivElement>(null);
+  const [side, setSide] = useState(0);
+
+  // 棋盘必须是正方形，且不能把侧栏/窗口撑破：量父容器，取短边
+  useEffect(() => {
+    const host = frameRef.current?.parentElement;
+    if (!host) return;
+    const update = (): void => {
+      const r = host.getBoundingClientRect();
+      setSide(Math.max(160, Math.floor(Math.min(r.width, r.height))));
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(host);
+    window.addEventListener('resize', update);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', update);
+    };
+  }, []);
 
   const step = (VIEW - PAD * 2) / (size - 1);
   const px = (v: number): number => PAD + (v % size) * step;
@@ -35,6 +55,7 @@ export function Board(props: BoardProps) {
   const lineW = size >= 19 ? 1.5 : size === 13 ? 1.9 : 2.4;
 
   return (
+    <div className="board-frame" ref={frameRef} style={side ? { width: side, height: side } : undefined}>
     <svg
       className={`board-svg${interactive || onToggleDead ? '' : ' is-locked'}`}
       viewBox={`0 0 ${VIEW} ${VIEW}`}
@@ -212,5 +233,6 @@ export function Board(props: BoardProps) {
         ))}
       </g>
     </svg>
+    </div>
   );
 }

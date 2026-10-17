@@ -125,6 +125,8 @@ export class Game {
 
   /** 试落，不改状态（界面预判、离线 AI 搜索都用它）。 */
   preview(color: Color, vertex: Vertex): PlayOutcome {
+    if (this.status === 'scoring')
+      return { ok: false, error: 'finished', message: '双方已停手，先确认死子再结算' };
     if (this.status !== 'playing') return { ok: false, error: 'finished', message: ERROR_TEXT.finished };
     if (vertex === PASS) return { ok: true, captured: [] };
     if (!isValidVertex(this.size, vertex))

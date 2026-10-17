@@ -117,10 +117,19 @@ export function registerRoutes(app: FastifyInstance, service: GameService): void
     const b = body<{ text?: string }>(req);
     if (!b.text || typeof b.text !== 'string') throw new ServiceError(400, '请把 SGF 内容放在 text 字段');
     const { match, variations, warnings } = service.importSgf(b.text);
-    return { ...snapshotOf(match), variations, warnings };
+    return { ...snapshotOf(match), opponent: match.opponent, variations, warnings };
   });
 
   app.get('/api/progress', async () => service.progressSummary());
+
+  app.post('/api/simulate/ranked', async (req) => {
+    const b = body<{ pattern?: 'win' | 'alternate' | 'lose'; games?: number; startLevel?: number }>(req);
+    return service.simulateRanked({
+      pattern: b.pattern ?? 'alternate',
+      games: b.games ?? 10,
+      startLevel: b.startLevel,
+    });
+  });
   app.post('/api/progress/name', async (req) => {
     const b = body<{ name?: string }>(req);
     service.renamePlayer(b.name ?? '');

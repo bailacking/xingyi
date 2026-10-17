@@ -79,6 +79,7 @@ export function Settings({ bootstrap, themeId, onTheme, onBack, onBootstrap }: S
   const [engineState, setEngineState] = useState(bootstrap.engine);
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
+  const [sim, setSim] = useState<Awaited<ReturnType<typeof api.simulateRanked>> | null>(null);
 
   useEffect(() => {
     setEngineState(bootstrap.engine);
@@ -358,6 +359,67 @@ export function Settings({ bootstrap, themeId, onTheme, onBack, onBootstrap }: S
               保存名字
             </button>
           </div>
+        </section>
+
+        <section className="panel">
+          <div className="panel-head">
+            <span className="panel-title">评级沙盘</span>
+            <span className="panel-sub">只在副本上跑，不动存档</span>
+          </div>
+          <div className="hint">
+            等级校准分还没实测，先用沙盘看看升降级手感：从你当前级起跑 12 盘，三种走势各跑一遍。
+          </div>
+          <div className="controls" style={{ marginTop: 10 }}>
+            {(
+              [
+                ['win', '连赢 12 盘'],
+                ['alternate', '胜负交替'],
+                ['lose', '连败 12 盘'],
+              ] as const
+            ).map(([pattern, label]) => (
+              <button
+                key={pattern}
+                className="btn"
+                onClick={async () => {
+                  try {
+                    setSim(await api.simulateRanked(pattern, 12));
+                  } catch {
+                    setMsg('沙盘跑不动（服务端出错）');
+                  }
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {sim && (
+            <div style={{ marginTop: 12, fontSize: 12 }}>
+              <div className="hint">
+                起点 {sim.start.level} 级 · R {sim.start.R} → 终点 {sim.end.levelCn} · R {sim.end.R}（RD {sim.end.RD}）
+              </div>
+              <div style={{ marginTop: 8, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(74px, 1fr))', gap: 6 }}>
+                {sim.timeline.map((g) => (
+                  <div
+                    key={g.game}
+                    title={`第 ${g.game} 盘 · R ${g.R}`}
+                    style={{
+                      border: '1px solid var(--line)',
+                      borderRadius: 'var(--radius-sm)',
+                      padding: '6px 7px',
+                      background: 'var(--surface-alt)',
+                    }}
+                  >
+                    <div style={{ color: g.won ? 'var(--ok)' : 'var(--danger)' }}>{g.won ? '胜' : '负'}</div>
+                    <div className="hint" style={{ fontSize: 11 }}>
+                      {g.deltaR > 0 ? '+' : ''}
+                      {g.deltaR} · {g.level} 级
+                      {g.change === 'up' ? ' ↑' : g.change === 'down' ? ' ↓' : ''}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </section>
 
         <section className="panel">

@@ -110,6 +110,15 @@ export const api = {
     req<GameResponse>('/api/sgf/import', { method: 'POST', body: JSON.stringify({ text }) }),
   sgfUrl: (id: string) => `/api/game/${id}/sgf`,
   progress: () => req<ProgressView>('/api/progress'),
+  simulateRanked: (pattern: 'win' | 'alternate' | 'lose', games = 10, startLevel?: number) =>
+    req<{
+      start: { level: number; R: number; RD: number };
+      timeline: { game: number; won: boolean; R: number; deltaR: number; level: number; change: 'up' | 'down' | null; pending: boolean }[];
+      end: { level: number; R: number; RD: number; levelCn: string };
+    }>('/api/simulate/ranked', {
+      method: 'POST',
+      body: JSON.stringify({ pattern, games, startLevel }),
+    }),
   rename: (name: string) =>
     req<ProgressView>('/api/progress/name', { method: 'POST', body: JSON.stringify({ name }) }),
 };
