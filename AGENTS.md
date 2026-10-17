@@ -43,7 +43,7 @@
 |---|---|---|---|
 | **自在**（free） | 可玩 | 9/13/19 路对局；AI 或离线对手；悔棋、停一手、认输、终局数子；SGF 导入/导出；分析面板（候选点 + 胜率 + 目差）；形势图（F）；候选变化幽灵子；点一颗子整块标死 | 自由摆子编辑（AB/AW/AE 拖拽摆放）；目差曲线；沿分支逐手跳转；"假设对手水平"滑杆 |
 | **修习**（ranked） | 可玩（参数未定死） | 3 盘自适应定级；前 10 盘暂定级；升降级 + 保级期 + 退级缓冲；跳档考核字段；`progress.json` + `.bak`；评级沙盘（设置页） | 等级校准分未定死（`data/ranks.json` 全部 `calibrated:false`）；跳档考核局 UI 未接 |
-| **手谈**（lan) | 未开始 | 仅 `Mode='lan'` 与 CAPS 占位 | 房间、发现、协议、观战、聊天全部未做 |
+| **手谈**（lan） | 未开始 | 仅 `Mode='lan'` 与 CAPS 占位 | 房间、发现、协议、观战、聊天全部未做 |
 | 教学 / 题库 | 未开始 | `data/tsumego/`、`data/joseki/` 空目录 | 交互式教学、死活判题、10 题测级 |
 | 主题 | 两套内置可用 | `walnut`（胡桃木，默认）+ `youth`（星弈·青）；即时切换 + 5 秒撤销 | 主题预览卡片；zip 导入导出；`style.css` 加载白名单 |
 | Electron | 未开始 | — | 换壳、窗口、图标、启动画面 |
@@ -354,7 +354,7 @@ node scripts/fit-ranks.mjs data/calibration/<stamp>.jsonl    # 保序回归 + �
 | POST | `/api/game/:id/quit` | 中途退出（ranked 算负） |
 | POST | `/api/game/:id/score` | `{dead: number[]}` 预览数子 |
 | POST | `/api/game/:id/finish` | `{dead}` 确认结算（ranked 写进度） |
-| POST | `/api/game/:id/analyze` | `{depth?}` → 候选 + ownership；未配置引擎返回 `available:false` + 原因 |
+| POST | `/api/game/:id/analyze` | `{depth?}`（quick/standard/deep = 5/6/8 候选，180~4200 ms）→ 候选 + ownership；未配置引擎返回 `available:false` + 原因 |
 | GET | `/api/game/:id/sgf` | 导出 SGF 文本 |
 | POST | `/api/sgf/import` | `{text}` → 新对局（按 `PL` 还原先后手） |
 | GET | `/api/progress` | 进度摘要 |
