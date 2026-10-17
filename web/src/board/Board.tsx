@@ -19,10 +19,28 @@ export interface BoardProps {
   onPlace?: (vertex: number) => void;
   /** 结算阶段：点棋子切换死子 */
   onToggleDead?: (vertex: number) => void;
+  /**
+   * 落子虚影形态：
+   * - square 小方块（默认）：色块够实、换任何主题都看得清
+   * - ghost  棋子虚影：像放了一颗半透明棋子，更拟真但浅色棋盘上容易发虚
+   */
+  hoverMark?: 'square' | 'ghost';
 }
 
 export function Board(props: BoardProps) {
-  const { size, grid, lastMove, ownership, showOwnership, ghost, deadStones, interactive, onPlace, onToggleDead } = props;
+  const {
+    size,
+    grid,
+    lastMove,
+    ownership,
+    showOwnership,
+    ghost,
+    deadStones,
+    interactive,
+    onPlace,
+    onToggleDead,
+    hoverMark = 'square',
+  } = props;
   const [hover, setHover] = useState<number | null>(null);
   const frameRef = useRef<HTMLDivElement>(null);
   const [side, setSide] = useState(0);
@@ -206,7 +224,46 @@ export function Board(props: BoardProps) {
 
       {/* 悬停预落子 */}
       {interactive && hover !== null && grid[hover] === 0 && (
-        <circle cx={px(hover)} cy={py(hover)} r={stoneR} fill="var(--primary)" opacity="0.26" pointerEvents="none" />
+        <g pointerEvents="none">
+          {hoverMark === 'ghost' ? (
+            <>
+              <circle cx={px(hover)} cy={py(hover)} r={stoneR} fill="var(--primary)" opacity="0.3" />
+              <circle
+                cx={px(hover)}
+                cy={py(hover)}
+                r={stoneR}
+                fill="none"
+                stroke="var(--accent)"
+                strokeWidth={2}
+                strokeDasharray="7 6"
+                opacity="0.95"
+              />
+            </>
+          ) : (
+            <>
+              <rect
+                x={px(hover) - stoneR * 0.72}
+                y={py(hover) - stoneR * 0.72}
+                width={stoneR * 1.44}
+                height={stoneR * 1.44}
+                rx={Math.max(2, stoneR * 0.14)}
+                fill="var(--accent)"
+                opacity="0.72"
+              />
+              <rect
+                x={px(hover) - stoneR * 0.72}
+                y={py(hover) - stoneR * 0.72}
+                width={stoneR * 1.44}
+                height={stoneR * 1.44}
+                rx={Math.max(2, stoneR * 0.14)}
+                fill="none"
+                stroke="var(--board-line)"
+                strokeWidth={2}
+                opacity="0.45"
+              />
+            </>
+          )}
+        </g>
       )}
 
       {/* 点击区 */}

@@ -162,6 +162,28 @@ describe('离线对手', () => {
     expect(a).toBe(b);
   });
 
+  it('局面已定时停手（不填自己的地、不往对方地里送死）', () => {
+    const size = 9;
+    const grid = new Array(81).fill(0);
+    for (let y = 0; y < 9; y++) {
+      for (let x = 0; x < 9; x++) if (x !== 4) grid[y * 9 + x] = 1;
+    }
+    // 中间一列空着，只被黑包围 → 黑的地盘，谁下进去都没意义
+    expect(offlineMove({ size, grid, toPlay: 'B', level: 10 })).toBe(PASS);
+    expect(offlineMove({ size, grid, toPlay: 'W', level: 10 })).toBe(PASS);
+  });
+
+  it('还有单官可收时不会急着停', () => {
+    const size = 9;
+    const grid = new Array(81).fill(0);
+    // 上半黑、下半白，中间第 4 行空着（单官，双方都能到）
+    for (let y = 0; y < 4; y++) for (let x = 0; x < 9; x++) grid[y * 9 + x] = 1;
+    for (let y = 5; y < 9; y++) for (let x = 0; x < 9; x++) grid[y * 9 + x] = 2;
+    const v = offlineMove({ size, grid, toPlay: 'B', level: 10 });
+    expect(v).not.toBe(PASS);
+    expect(Math.floor(v / size)).toBe(4);
+  });
+
   it('无处可下时停一手', () => {
     const size = 3;
     const grid = new Array(9).fill(1); // 盘面无空点

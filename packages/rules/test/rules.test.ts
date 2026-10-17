@@ -173,6 +173,16 @@ describe('劫与 superko', () => {
     expect(recapture.captured).toEqual([idx(9, 2, 1)]);
   });
 
+  it('「终局」按钮：直接进入待数子，且能数出结果', () => {
+    const g = new Game({ size: 9, komi: 7.5 });
+    g.play('B', idx(9, 0, 0));
+    g.stop();
+    expect(g.status).toBe('scoring');
+    const { detail, text } = g.finishByScore([]);
+    expect(text).toMatch(/胜|和/);
+    expect(detail.blackArea).toBeGreaterThan(0);
+  });
+
   it('双方停手 → 进入数子阶段', () => {
     const g = new Game({ size: 9, komi: 7.5 });
     g.play('B', PASS);

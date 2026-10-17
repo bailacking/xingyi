@@ -19,6 +19,8 @@ export interface AppConfig {
     soundPack: 'jade' | 'porcelain' | 'wood';
     /** 音量 0..1 */
     soundVolume: number;
+    /** 落子虚影：小方块（默认，主题无关都看得清）/ 棋子虚影 */
+    hoverMark: 'square' | 'ghost';
     showOwnership: boolean;
     /** 分析深度档：quick / standard / deep */
     analysisDepth: 'quick' | 'standard' | 'deep';
@@ -48,6 +50,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     sound: true,
     soundPack: 'jade',
     soundVolume: 0.75,
+    hoverMark: 'square',
     showOwnership: false,
     analysisDepth: 'standard',
     playerColor: 'B',

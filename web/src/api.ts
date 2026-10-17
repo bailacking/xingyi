@@ -20,10 +20,10 @@ export class ApiError extends Error {
 }
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
-    ...init,
-    headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) },
-  });
+  // 没有 body 的 POST 不能带 content-type: application/json，否则 Fastify 会判「空 JSON body」
+  const headers: Record<string, string> = { ...((init?.headers as Record<string, string>) ?? {}) };
+  if (init?.body !== undefined) headers['content-type'] = 'application/json';
+  const res = await fetch(path, { ...init, headers });
   const text = await res.text();
   let data: unknown = null;
   try {
@@ -89,6 +89,7 @@ export const api = {
   pass: (id: string) => req<GameResponse>(`/api/game/${id}/pass`, { method: 'POST' }),
   undo: (id: string, to?: number) =>
     req<GameResponse>(`/api/game/${id}/undo`, { method: 'POST', body: JSON.stringify(to === undefined ? {} : { to }) }),
+  endGame: (id: string) => req<GameResponse>(`/api/game/${id}/end`, { method: 'POST' }),
   resign: (id: string) => req<GameResponse>(`/api/game/${id}/resign`, { method: 'POST' }),
   quit: (id: string) => req<GameResponse>(`/api/game/${id}/quit`, { method: 'POST' }),
   score: (id: string, dead: number[]) =>

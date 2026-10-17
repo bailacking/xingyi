@@ -151,6 +151,11 @@ export class Game {
     return { ok: true, captured };
   }
 
+  /** 双方同意停手（界面的「终局」按钮）：不记 pass 手，只进入待数子状态。 */
+  stop(): void {
+    if (this.status === 'playing') this.status = 'scoring';
+  }
+
   /** 任意悔棋：回到第 ply 手（0 = 开局），逐手回放重建（361 格，代价可忽略）。 */
   undoTo(ply: number): void {
     const target = Math.max(0, Math.min(ply, this.moves.length));

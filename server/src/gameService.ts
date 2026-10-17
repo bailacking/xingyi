@@ -267,6 +267,20 @@ export class GameService extends EventEmitter {
     return m;
   }
 
+  /** 双方停手（界面的「终局」按钮）：直接进入待数子。 */
+  endGame(id: string): Match {
+    const m = this.getMatch(id);
+    if (m.finished) throw new ServiceError(400, '这盘已经结束了');
+    if (m.mode === 'ranked') {
+      throw new ServiceError(403, '修习模式不能手动终局：要双方各自停手才算收官');
+    }
+    m.game.stop();
+    m.aiThinking = false;
+    m.touch();
+    this.emit('game', m.snapshot());
+    return m;
+  }
+
   resign(id: string): Match {
     const m = this.getMatch(id);
     if (m.finished) throw new ServiceError(400, '这盘已经结束了');
@@ -320,6 +334,8 @@ export class GameService extends EventEmitter {
           lastMove: m.game.lastMove,
         });
       }
+      // 对局可能在这期间被叫停（点了「终局」或认输），别把 AI 的棋硬塞进去
+      if (m.game.status !== 'playing') return;
       if (resign) {
         m.applyResign(m.aiColor);
         m.settlement = this.settle(m);

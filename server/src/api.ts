@@ -76,6 +76,8 @@ export function registerRoutes(app: FastifyInstance, service: GameService): void
     return snapshotOf(service.undo(req.params.id, b.to));
   });
 
+  app.post<{ Params: { id: string } }>('/api/game/:id/end', async (req) => snapshotOf(service.endGame(req.params.id)));
+
   app.post<{ Params: { id: string } }>('/api/game/:id/resign', async (req) =>
     snapshotOf(service.resign(req.params.id)),
   );

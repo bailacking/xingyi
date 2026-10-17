@@ -42,6 +42,7 @@ export interface AppConfigLike {
     sound: boolean;
     soundPack: 'jade' | 'porcelain' | 'wood';
     soundVolume: number;
+    hoverMark: 'square' | 'ghost';
     showOwnership: boolean;
     analysisDepth: 'quick' | 'standard' | 'deep';
     playerColor: 'B' | 'W';

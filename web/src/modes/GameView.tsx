@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { gtpToVertex } from '@xingyi/shared';
+import { Board as RulesBoard } from '@xingyi/rules';
 import { Board } from '../board/Board';
 import { api, ApiError, type Bootstrap, type GameResponse, type SocketEvent } from '../api';
 import { AnalysisPanel } from '../panels/AnalysisPanel';
@@ -226,6 +227,16 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
     }
   };
 
+  const doEnd = async () => {
+    if (!game) return;
+    if (!window.confirm('双方停手，进入数子？（之后可以点棋盘上的死子再确认）')) return;
+    try {
+      applyResponse(await api.endGame(game.id));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : '终局失败');
+    }
+  };
+
   const doResign = async () => {
     if (!game) return;
     if (!window.confirm('认输这盘？修习模式下会算负并计入进度。')) return;
@@ -387,12 +398,20 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
               ownership={analysis?.ownership ?? null}
               showOwnership={showOwnership && caps.showWinrate}
               ghost={ghost}
+              hoverMark={bootstrap.config.ui.hoverMark}
               deadStones={game.status === 'scoring' ? deadStones : []}
               interactive={humanTurn}
               onPlace={(v) => void play(v)}
               onToggleDead={
                 game.status === 'scoring'
-                  ? (v) => setDeadStones((d) => (d.includes(v) ? d.filter((x) => x !== v) : [...d, v]))
+                  ? (v) => {
+                      // 点一颗子 = 整块一起标死（玩家不会一块棋点五下）
+                      const group = new RulesBoard(game.size, game.grid).groupAt(v).stones;
+                      const allDead = group.every((g) => deadStones.includes(g));
+                      setDeadStones((d) =>
+                        allDead ? d.filter((x) => !group.includes(x)) : [...new Set([...d, ...group])],
+                      );
+                    }
                   : undefined
               }
             />
@@ -403,6 +422,53 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
       </div>
 
       <aside className="side">
+        {game?.status === 'scoring' && (
+          <section className="panel" style={{ borderColor: 'var(--accent)' }}>
+            <div className="panel-head">
+              <span className="panel-title">数子</span>
+              <span className="panel-sub">双方停手</span>
+            </div>
+            {scorePreview ? (
+              <>
+                <div className="stat-row">
+                  <span className="stat-key">黑（子 + 空）</span>
+                  <span className="stat-val">{scorePreview.blackArea} 目</span>
+                </div>
+                <div className="stat-row">
+                  <span className="stat-key">白（子 + 空 + 贴 {scorePreview.komi}）</span>
+                  <span className="stat-val">{scorePreview.whiteArea + scorePreview.komi} 目</span>
+                </div>
+                <div className="stat-row">
+                  <span className="stat-key">结论</span>
+                  <span className="stat-val" style={{ fontFamily: 'var(--font-title)', fontSize: 17 }}>
+                    {scorePreview.winner === 'B'
+                      ? `黑胜 ${scorePreview.margin} 目`
+                      : scorePreview.winner === 'W'
+                        ? `白胜 ${scorePreview.margin} 目`
+                        : '和棋'}
+                  </span>
+                </div>
+              </>
+            ) : (
+              <div className="hint">正在数子…</div>
+            )}
+            <div className="hint" style={{ marginTop: 10 }}>
+              棋盘上的死子点一下整块标死（红叉），再点取消。已标 {deadStones.length} 子。
+              不标死子，数目会偏。
+            </div>
+            <div className="controls" style={{ marginTop: 10 }}>
+              <button className="btn btn-primary" onClick={() => void doFinish()}>
+                确认结算
+              </button>
+              {caps.allowUndo && (
+                <button className="btn" onClick={() => void doUndo()}>
+                  撤销停手
+                </button>
+              )}
+            </div>
+          </section>
+        )}
+
         {isPlacement && game && (
           <div className="notice">
             定级赛 第 {bootstrap.progress.placement.stage + 1} 盘 · 对手 {levelCn(game.level)}
@@ -449,6 +515,11 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
             >
               悔棋
             </button>
+            {mode === 'free' && (
+              <button className="btn" onClick={doEnd} disabled={!game || game.status !== 'playing'}>
+                终局数子
+              </button>
+            )}
             <button className="btn" onClick={doResign} disabled={!game || game.status !== 'playing'}>
               认输
             </button>
@@ -486,46 +557,6 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
           快捷键：F 形势图 · Esc 关闭结算
         </div>
       </aside>
-
-      {game?.status === 'scoring' && (
-        <div className="overlay">
-          <div className="result-card">
-            <div className="hint" style={{ letterSpacing: '.2em' }}>
-              双方停手
-            </div>
-            <div className="result-text">数子</div>
-            {scorePreview ? (
-              <>
-                <div className="result-line">
-                  黑 {scorePreview.blackArea} 目 · 白 {scorePreview.whiteArea} + {scorePreview.komi} 目
-                </div>
-                <div className="result-line" style={{ fontSize: 16 }}>
-                  {scorePreview.winner === 'B'
-                    ? `黑胜 ${scorePreview.margin} 目`
-                    : scorePreview.winner === 'W'
-                      ? `白胜 ${scorePreview.margin} 目`
-                      : '和棋'}
-                </div>
-              </>
-            ) : (
-              <div className="result-line">正在数子…</div>
-            )}
-            <div className="hint" style={{ marginTop: 12 }}>
-              点棋盘上的死子可以标死/取消（已标 {deadStones.length} 子）
-            </div>
-            <div className="result-actions">
-              <button className="btn btn-primary" onClick={() => void doFinish()}>
-                确认结算
-              </button>
-              {caps.allowUndo && (
-                <button className="btn" onClick={() => void doUndo()}>
-                  撤销停手
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
 
       {showResult && game?.status === 'finished' && game.result && (
         <div className="overlay" onClick={() => setShowResult(false)}>

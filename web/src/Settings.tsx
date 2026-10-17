@@ -371,6 +371,20 @@ export function Settings({ bootstrap, themeId, onTheme, onBack, onBootstrap }: S
             　· 音效全部由程序现场合成（零版权素材），不用下载音频文件。
           </div>
           <div className="field">
+            <label>落子虚影</label>
+            <select
+              value={ui.hoverMark}
+              onChange={(e) => {
+                const v = e.target.value as 'square' | 'ghost';
+                setUi({ ...ui, hoverMark: v });
+                void save({ ui: { ...ui, hoverMark: v } });
+              }}
+            >
+              <option value="square">小方块（默认，换主题都看得清）</option>
+              <option value="ghost">棋子虚影（拟真，浅色盘上偏淡）</option>
+            </select>
+          </div>
+          <div className="field">
             <label>分析深度</label>
             <select
               value={ui.analysisDepth}

@@ -1,5 +1,5 @@
 import { PASS, neighbors, type Color, type Vertex } from '@xingyi/shared';
-import { Board, colorCode, opposite } from '@xingyi/rules';
+import { Board, colorCode, opposite, scoreArea } from '@xingyi/rules';
 
 /**
  * 离线对手：**不是 KataGo**，是程序自带的启发式陪练。
@@ -51,6 +51,23 @@ export function offlineMove(req: OfflineMoveRequest): Vertex {
   const legal = board.legalMoves(me);
   if (legal.length === 0) return PASS;
 
+  // 局面已定：剩下的空点全落在某一方的地里（填进去只是自己少一目），停一手。
+  // 这样离线对局才能正常收束到"双方停手 → 数子"，否则会一直填到棋盘满。
+  //
+  // 「已定」需要一个密度前提：空盘上只有一颗黑子时，按地域算整盘都是黑的地，
+  // 但那显然不是终局。所以只有空点少到 28% 以下才承认"地"，否则继续找大场。
+  // 28% 是经验值（C 类），不是规则。
+  const total = req.size * req.size;
+  let empties = 0;
+  for (let i = 0; i < board.grid.length; i++) if (!board.grid[i]) empties++;
+  const crowded = empties <= total * 0.28;
+
+  const territory = scoreArea(req.size, board.grid, 0);
+  const ownArea = new Set(me === 'B' ? territory.blackTerritory : territory.whiteTerritory);
+  const oppArea = new Set(me === 'B' ? territory.whiteTerritory : territory.blackTerritory);
+  const meaningful = legal.filter((v) => !ownArea.has(v) && !oppArea.has(v));
+  if (crowded && meaningful.length === 0) return PASS;
+
   const level = Math.max(1, Math.min(15, Math.round(req.level)));
   const skill = (level - 1) / 14; // 0..1
   const noise = (1 - skill) * 26 + 2;
@@ -60,7 +77,10 @@ export function offlineMove(req: OfflineMoveRequest): Vertex {
   let bestScore = -Infinity;
   const nb: Vertex[] = [];
 
-  for (const v of legal) {
+  // 还有大场可下时别急着填自己的地：优先排除自家地域内的点
+  const notOwn = legal.filter((v) => !ownArea.has(v));
+  const pool = meaningful.length > 0 ? meaningful : notOwn.length > 0 ? notOwn : legal;
+  for (const v of pool) {
     const sim = board.clone();
     const res = sim.place(me, v);
     if (res.suicide) continue;

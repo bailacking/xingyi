@@ -97,6 +97,21 @@ describe('服务端 REST', () => {
     expect(undo.json().snapshot.grid.every((c: number) => c === 0)).toBe(true);
   });
 
+  it('无参 POST 但带 application/json 空 body 也不能 400', async () => {
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/game',
+      payload: { mode: 'free', size: 9, playerColor: 'B', level: 2 },
+    });
+    const id = created.json().snapshot.id as string;
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/game/${id}/pass`,
+      headers: { 'content-type': 'application/json' },
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
   it('导入 SGF → 双方停手 → 确认死子 → 数子结束', async () => {
     const sgf = '(;GM[1]FF[4]CA[UTF-8]SZ[9]KM[7.5];B[ee];W[cc];B[gg])';
     const imported = await app.inject({ method: 'POST', url: '/api/sgf/import', payload: { text: sgf } });
@@ -120,6 +135,28 @@ describe('服务端 REST', () => {
     expect(done.snapshot.status).toBe('finished');
     expect(done.snapshot.result.text).toMatch(/胜|和/);
     expect(done.settlement.counted).toBe(false);
+  });
+
+  it('「终局」能把对局推进到数子并算出胜负（不依赖引擎）', async () => {
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/game',
+      payload: { mode: 'free', size: 9, playerColor: 'B', level: 3 },
+    });
+    const id = created.json().snapshot.id as string;
+    await app.inject({ method: 'POST', url: `/api/game/${id}/move`, payload: { vertex: idx(9, 4, 4) } });
+    await sleep(120);
+
+    const end = await app.inject({ method: 'POST', url: `/api/game/${id}/end` });
+    expect(end.statusCode).toBe(200);
+    expect(end.json().snapshot.status).toBe('scoring');
+
+    const finish = await app.inject({ method: 'POST', url: `/api/game/${id}/finish`, payload: { dead: [] } });
+    expect(finish.statusCode).toBe(200);
+    const snap = finish.json().snapshot;
+    expect(snap.status).toBe('finished');
+    expect(snap.result.text).toMatch(/胜|和/);
+    expect(snap.score.blackArea).toBeGreaterThan(0);
   });
 
   it('自在模式分析在未配置引擎时给出中文说明而不是报错', async () => {

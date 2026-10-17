@@ -24,6 +24,21 @@ const MIME: Record<string, string> = {
 export function createApp(service: GameService): FastifyInstance {
   const app = Fastify({ logger: false, bodyLimit: 8 * 1024 * 1024 });
 
+  // 允许「声明了 application/json 但 body 为空」的请求（pass / resign / end 这类无参 POST 很常见），
+  // 否则 Fastify 会直接 400：Body cannot be empty when content-type is set to 'application/json'
+  app.addContentTypeParser('application/json', { parseAs: 'string' }, (_req, body, done) => {
+    const text = typeof body === 'string' ? body.trim() : '';
+    if (!text) {
+      done(null, {});
+      return;
+    }
+    try {
+      done(null, JSON.parse(text));
+    } catch (err) {
+      done(err as Error, undefined);
+    }
+  });
+
   app.addHook('onRequest', async (req, reply) => {
     reply.header('Access-Control-Allow-Origin', '*');
     reply.header('Access-Control-Allow-Headers', 'content-type');
