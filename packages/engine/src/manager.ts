@@ -123,8 +123,9 @@ export class EngineManager extends EventEmitter {
     this.emit('status', this.status);
   }
 
-  /** 启动并做最小自检（name / version）。 */
+  /** 启动并做最小自检（name / version）。已在跑就直接返回，避免重复 spawn 出两个引擎。 */
   async start(): Promise<EngineStatus> {
+    if (this.session?.running) return this.status;
     if (!this.configured) {
       this.setStatus({ state: 'unconfigured', error: '还没有配置 katago 与模型文件' });
       return this.status;
@@ -298,10 +299,22 @@ export class EngineManager extends EventEmitter {
     const p = levelParams(level);
     await this.tryCmd(`kata-set-param maxVisits ${p.maxVisits}`);
     if (p.profile) {
-      if (this.config.humanModelPath) await this.tryCmd(`kata-set-param humanSLProfile ${p.profile}`);
+      if (this.config.humanModelPath) {
+        // 实测：只设 humanSLProfile 并不会改变棋——humanSLChosenMoveProp 默认是 0，
+        // 意思是「不从人类模型选点」。必须显式设成 1 才真的走 human SL。
+        await this.tryCmd(
+          `kata-set-params ${JSON.stringify({
+            humanSLProfile: p.profile,
+            humanSLChosenMoveProp: 1.0,
+            humanSLChosenMovePiklLambda: 1e9,
+            humanSLChosenMoveIgnorePass: true,
+          })}`,
+        );
+      }
     } else {
-      // 主模型档位：清掉 human profile（旧引擎可能不认，忽略失败）
-      await this.tryCmd('kata-set-param humanSLProfile ""');
+      await this.tryCmd(
+        `kata-set-params ${JSON.stringify({ humanSLProfile: '', humanSLChosenMoveProp: 0 })}`,
+      );
     }
     if (typeof assumeLevel === 'number' && Number.isFinite(assumeLevel)) {
       const diff = level - assumeLevel;

@@ -1,7 +1,7 @@
 import type { AnalysisCandidate, Color } from '@xingyi/shared';
 import { gtpToVertex } from '@xingyi/shared';
 
-/** 顶层字段与 info 内字段（KataGo 可能新增字段，解析必须容错）。 */
+/** info 段内的字段名（KataGo 可能新增字段，解析必须容错）。 */
 const INFO_FIELDS = new Set([
   'move',
   'visits',
@@ -25,9 +25,9 @@ const INFO_FIELDS = new Set([
 ]);
 
 export interface ParsedAnalyzeLine {
-  kind: 'info' | 'root' | 'other';
-  candidate?: AnalysisCandidate;
-  /** 根的访问数（rootInfo 行） */
+  /** 一行里可能有多个 info 段（实测：一次输出把 5~6 个候选串在同一行） */
+  candidates: AnalysisCandidate[];
+  /** 根的访问数（rootInfo 段） */
   rootVisits?: number;
   /** 逐点归属，[-1,1]，视角 = 行棋方 */
   ownership?: number[];
@@ -40,85 +40,92 @@ function num(v: string | undefined): number {
 
 /**
  * 解析一行 `kata-analyze` 输出。
- * 格式依据 docs/GTP_Extensions.md：字段顺序不保证，新字段可能出现，未知字段一律忽略。
+ *
+ * 真实格式（KataGo v1.18.2 实测）是**一行里串多个段**：
+ *   `info move Q4 visits 3 ... info move D4 visits 3 ... rootInfo visits 500 ... ownership 0.1 0.2 ...`
+ * 只按"一行一个候选"解析会一个都拿不到——所以按段切分，返回候选数组。
+ * 字段顺序不保证，新字段一律忽略。
  */
 export function parseAnalyzeLine(line: string, size: number): ParsedAnalyzeLine {
   const tokens = line.trim().split(/\s+/);
-  let kind: 'info' | 'root' | 'other' = 'other';
-  const fields: Record<string, string> = {};
-  let pv: string[] = [];
-  let ownership: number[] | null = null;
+  const candidates: AnalysisCandidate[] = [];
+  let rootVisits: number | undefined;
+  let ownership: number[] | undefined;
 
-  const flush = (): void => {};
-  let current = '';
+  let section: 'info' | 'root' | null = null;
+  let fields: Record<string, string> = {};
+  let pv: string[] = [];
+
+  const flush = (): void => {
+    if (section === 'info') {
+      const move = fields.move ?? '';
+      if (move) {
+        candidates.push({
+          move,
+          vertex: gtpToVertex(size, move),
+          visits: num(fields.visits),
+          winrate: num(fields.winrate),
+          scoreLead: num(fields.scoreLead),
+          prior: num(fields.prior),
+          order: num(fields.order),
+          pv,
+        });
+      }
+    } else if (section === 'root') {
+      if (fields.visits) rootVisits = num(fields.visits);
+    }
+    fields = {};
+    pv = [];
+  };
+
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i]!;
     if (t === 'info' || t === 'rootInfo') {
-      kind = t === 'info' ? 'info' : 'root';
-      current = '';
+      flush();
+      section = t === 'info' ? 'info' : 'root';
       continue;
     }
     if (t === 'ownership' || t === 'ownershipStdev') {
-      const vals: number[] = [];
-      for (let j = i + 1; j < tokens.length; j++) {
-        const n = Number(tokens[j]);
-        if (Number.isFinite(n)) vals.push(n);
-        else break;
-      }
-      if (t === 'ownership') ownership = vals;
-      break;
-    }
-    if (kind === 'other') continue;
-    if (INFO_FIELDS.has(t) || (kind === 'root' && (t === 'visits' || t === 'winrate' || t === 'scoreLead'))) {
-      current = t;
-      if (t === 'pv') {
-        pv = [];
-        let j = i + 1;
-        while (j < tokens.length) {
-          const tok = tokens[j]!;
-          // 坐标一定带数字（pass 除外）；纯字母 token 视为新字段名 → PV 结束。
-          const looksLikeField = tok !== 'pass' && /^[A-Za-z_][A-Za-z_]*$/.test(tok);
-          if (INFO_FIELDS.has(tok) || tok === 'ownership' || tok === 'rootInfo' || tok === 'info' || looksLikeField) break;
-          pv.push(tok);
-          j++;
+      if (t === 'ownership') {
+        const vals: number[] = [];
+        for (let j = i + 1; j < tokens.length; j++) {
+          const n = Number(tokens[j]);
+          if (Number.isFinite(n)) vals.push(n);
+          else break;
         }
-        i = j - 1;
-        fields.pv = pv.join(' ');
-        current = '';
-      } else {
-        fields[t] = tokens[i + 1] ?? '';
-        i += 1;
+        ownership = vals;
       }
+      break; // ownership 是最后一个顶层段，后面不用看了
+    }
+    if (!section) continue;
+    if (!INFO_FIELDS.has(t)) continue;
+
+    if (t === 'pv') {
+      pv = [];
+      let j = i + 1;
+      while (j < tokens.length) {
+        const tok = tokens[j]!;
+        // 坐标一定带数字（pass 除外）；纯字母 token 视为新段/新字段
+        if (tok === 'info' || tok === 'rootInfo' || tok === 'ownership') break;
+        if (tok !== 'pass' && /^[A-Za-z_]+$/.test(tok)) break;
+        pv.push(tok);
+        j++;
+      }
+      i = j - 1;
       continue;
     }
-    // 未知 token：忽略（可能是新字段名）
+    fields[t] = tokens[i + 1] ?? '';
+    i += 1;
   }
   flush();
 
-  if (kind === 'root') {
-    return { kind, rootVisits: num(fields.visits), ownership: ownership ?? undefined };
-  }
-  if (kind === 'info') {
-    const move = fields.move ?? '';
-    const candidate: AnalysisCandidate = {
-      move,
-      vertex: gtpToVertex(size, move),
-      visits: num(fields.visits),
-      winrate: num(fields.winrate),
-      scoreLead: num(fields.scoreLead),
-      prior: num(fields.prior),
-      order: num(fields.order),
-      pv,
-    };
-    return { kind, candidate, ownership: ownership ?? undefined };
-  }
-  return { kind, ownership: ownership ?? undefined };
+  return { candidates, rootVisits, ownership };
 }
 
 /** ownership 是"行棋方视角"，转成黑正白负，供形势图使用。 */
 export function ownershipToBlack(ownership: number[] | undefined, turn: Color): number[] | null {
   if (!ownership || ownership.length === 0) return null;
-  return turn === 'B' ? ownership.map((v) => v) : ownership.map((v) => -v);
+  return turn === 'B' ? ownership : ownership.map((v) => -v);
 }
 
 export interface AnalyzeAccumulator {
@@ -139,9 +146,11 @@ export function feedLine(acc: AnalyzeAccumulator, line: string): void {
   if (parsed.ownership && parsed.ownership.length === acc.size * acc.size) {
     acc.ownership = ownershipToBlack(parsed.ownership, acc.turn);
   }
-  if (parsed.kind === 'root' && parsed.rootVisits) acc.rootVisits = parsed.rootVisits;
-  if (parsed.kind === 'info' && parsed.candidate) {
-    acc.candidates.set(parsed.candidate.move, parsed.candidate);
+  if (parsed.rootVisits) acc.rootVisits = parsed.rootVisits;
+  for (const cand of parsed.candidates) {
+    const prev = acc.candidates.get(cand.move);
+    // 同一个候选会反复输出，取访问数更多的那份
+    if (!prev || cand.visits >= prev.visits) acc.candidates.set(cand.move, cand);
   }
 }
 

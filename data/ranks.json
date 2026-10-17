@@ -1,81 +1,119 @@
 {
   "maxLevel": 15,
   "calibrated": false,
+  "calibratedAt": "2026-10-17T23:59:00",
+  "source": "data/calibration/2026-10-17T15-36-27.jsonl",
+  "anchor": {
+    "level": 8,
+    "rating": 1525
+  },
+  "measuredStep": 100,
+  "note": "9 路 8 盘/组实测：相邻级平均差 100 分（原设计 75 分）。95% 置信区间约 ±3 级，样本不足以逐级定死，故按等距落表，calibrated 全部为 false。",
   "levels": [
     {
       "level": 1,
-      "rating": 1000,
-      "calibrated": false
+      "rating": 825,
+      "calibrated": false,
+      "sample": 0,
+      "note": "样本不足（8 盘/组），暂按实测平均步长等距外推"
     },
     {
       "level": 2,
-      "rating": 1075,
-      "calibrated": false
+      "rating": 925,
+      "calibrated": false,
+      "sample": 0,
+      "note": "样本不足（8 盘/组），暂按实测平均步长等距外推"
     },
     {
       "level": 3,
-      "rating": 1150,
-      "calibrated": false
+      "rating": 1025,
+      "calibrated": false,
+      "sample": 0,
+      "note": "样本不足（8 盘/组），暂按实测平均步长等距外推"
     },
     {
       "level": 4,
-      "rating": 1225,
-      "calibrated": false
+      "rating": 1125,
+      "calibrated": false,
+      "sample": 0,
+      "note": "样本不足（8 盘/组），暂按实测平均步长等距外推"
     },
     {
       "level": 5,
-      "rating": 1300,
-      "calibrated": false
+      "rating": 1225,
+      "calibrated": false,
+      "sample": 0,
+      "note": "样本不足（8 盘/组），暂按实测平均步长等距外推"
     },
     {
       "level": 6,
-      "rating": 1375,
-      "calibrated": false
+      "rating": 1325,
+      "calibrated": false,
+      "sample": 0,
+      "note": "样本不足（8 盘/组），暂按实测平均步长等距外推"
     },
     {
       "level": 7,
-      "rating": 1450,
-      "calibrated": false
+      "rating": 1425,
+      "calibrated": false,
+      "sample": 0,
+      "note": "样本不足（8 盘/组），暂按实测平均步长等距外推"
     },
     {
       "level": 8,
       "rating": 1525,
-      "calibrated": false
+      "calibrated": false,
+      "sample": 0,
+      "note": "样本不足（8 盘/组），暂按实测平均步长等距外推"
     },
     {
       "level": 9,
-      "rating": 1600,
-      "calibrated": false
+      "rating": 1625,
+      "calibrated": false,
+      "sample": 0,
+      "note": "样本不足（8 盘/组），暂按实测平均步长等距外推"
     },
     {
       "level": 10,
-      "rating": 1675,
-      "calibrated": false
+      "rating": 1725,
+      "calibrated": false,
+      "sample": 0,
+      "note": "样本不足（8 盘/组），暂按实测平均步长等距外推"
     },
     {
       "level": 11,
-      "rating": 1750,
-      "calibrated": false
+      "rating": 1825,
+      "calibrated": false,
+      "sample": 0,
+      "note": "样本不足（8 盘/组），暂按实测平均步长等距外推"
     },
     {
       "level": 12,
-      "rating": 1825,
-      "calibrated": false
+      "rating": 1925,
+      "calibrated": false,
+      "sample": 0,
+      "note": "样本不足（8 盘/组），暂按实测平均步长等距外推"
     },
     {
       "level": 13,
-      "rating": 1900,
-      "calibrated": false
+      "rating": 2025,
+      "calibrated": false,
+      "sample": 0,
+      "note": "样本不足（8 盘/组），暂按实测平均步长等距外推"
     },
     {
       "level": 14,
-      "rating": 1975,
-      "calibrated": false
+      "rating": 2125,
+      "calibrated": false,
+      "sample": 0,
+      "note": "样本不足（8 盘/组），暂按实测平均步长等距外推"
     },
     {
       "level": 15,
-      "rating": 2050,
-      "calibrated": false
+      "rating": 2225,
+      "calibrated": false,
+      "sample": 0,
+      "note": "样本不足（8 盘/组），暂按实测平均步长等距外推"
     }
   ]
 }

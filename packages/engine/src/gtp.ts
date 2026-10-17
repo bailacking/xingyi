@@ -120,9 +120,15 @@ export class GtpSession extends EventEmitter {
 
   private handleLine(line: string): void {
     // 分析流：没有在等响应时，info/rootInfo/ownership 行直接交给收集器
-    if (this.analysisSink && !this.current && /^(info|rootInfo|ownership|ownershipStdev)\b/.test(line)) {
-      this.analysisSink(line);
-      return;
+    if (this.analysisSink && !this.current) {
+      if (/^(info|rootInfo|ownership|ownershipStdev)\b/.test(line)) {
+        this.analysisSink(line);
+        return;
+      }
+      // 实测（KataGo v1.18.2）：`kata-analyze` 的应答是 `=` 行**紧接着** info 行，
+      // 中间没有空行收尾。若把它当作普通响应开头，后面的 info 会被吞进响应体，
+      // 分析永远拿不到数据（假引擎最初写成 `=` 空行 + info，掩盖了这个 bug）。
+      if (line[0] === '=' || line[0] === '?') return;
     }
     if (line === '') {
       if (this.current) this.finishCurrent();

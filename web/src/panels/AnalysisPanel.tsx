@@ -85,7 +85,7 @@ export function AnalysisPanel(props: AnalysisPanelProps) {
           )}
           {analysis && (
             <div className="hint" style={{ marginTop: 6, opacity: 0.7 }}>
-              分析强度按 {levelCn(11)} 以上跑（{analysis.source === 'katago' ? 'KataGo' : '离线'}）
+              分析固定用主模型跑（{analysis.source === 'katago' ? 'KataGo' : '离线'}）
             </div>
           )}
         </>

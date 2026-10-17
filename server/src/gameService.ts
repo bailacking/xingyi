@@ -165,7 +165,8 @@ export class GameService extends EventEmitter {
     const mode = opts.mode;
     if (mode === 'lan') throw new ServiceError(501, '手谈（联机）还没做，P5 才上线');
     const caps = CAPS[mode];
-    const size: BoardSize = BOARD_SIZES.includes(opts.size ?? 19) ? (opts.size as BoardSize) : 19;
+    const requestedSize = opts.size ?? 19;
+    const size: BoardSize = BOARD_SIZES.includes(requestedSize) ? requestedSize : 19;
     const komi = Number.isFinite(opts.komi) ? Number(opts.komi) : DEFAULT_KOMI;
     const playerColor: Color = opts.playerColor === 'W' ? 'W' : 'B';
 
@@ -489,7 +490,8 @@ export class GameService extends EventEmitter {
       komi: m.game.komi,
       moves: m.moveList(),
       turn: m.game.toPlay,
-      level: Math.max(11, m.level),
+      // 分析一律用主模型（13 级 = 800 visits）：human SL 的评估是"人类会怎么下"，不是"这盘谁好"
+      level: 13,
       ...preset,
     });
     if (!result) return { available: false, reason: '引擎这次没给出结果（超时或局面异常），再试一次' };

@@ -44,16 +44,20 @@ function emitAnalysis(color, count) {
   for (let i = 0; i < grid.length; i++) if (!grid[i]) empties.push(i);
   const picks = empties.slice(0, Math.max(1, count));
   const ownership = new Array(size * size).fill('0.5').join(' ');
-  picks.forEach((idx, order) => {
+  // 真 KataGo 的格式：把多个 info 段串在**同一行**，最后接 rootInfo 与 ownership
+  const infos = picks.map((idx, order) => {
     const visits = (order + 1) * 37;
-    const line =
-      `info move ${gtp(idx)} visits ${visits} utility -0.1 winrate ${(0.55 - order * 0.02).toFixed(4)} ` +
+    return (
+      `info move ${gtp(idx)} visits ${visits} edgeVisits ${visits} utility -0.1 ` +
+      `winrate ${(0.55 - order * 0.02).toFixed(4)} scoreMean ${(2 - order * 0.3).toFixed(2)} ` +
       `scoreLead ${(2 - order * 0.3).toFixed(2)} prior ${(0.2 - order * 0.01).toFixed(3)} ` +
-      `order ${order} pv ${gtp(idx)} ${picks[0] === idx ? 'A1' : gtp(picks[0])} ` +
-      `ownership ${ownership}`;
-    process.stdout.write(line + '\n');
+      `order ${order} pv ${gtp(idx)} ${gtp(picks[picks.length - 1])}`
+    );
   });
-  process.stdout.write(`rootInfo visits 400 winrate 0.5500 scoreLead 1.50 ownership ${ownership}\n`);
+  process.stdout.write(
+    `${infos.join(' ')} rootInfo visits 400 winrate 0.5500 scoreLead 1.50 ownership ${ownership}
+`,
+  );
 }
 
 const rl = readline.createInterface({ input: process.stdin });
@@ -145,7 +149,9 @@ rl.on('line', (raw) => {
       for (let i = 0; i < rest2.length; i++) {
         if (rest2[i] === 'interval') interval = Number(rest2[i + 1]) || 10;
       }
-      reply(out(''));
+      // 真 KataGo 的行为：`=` 之后**紧接着** info 行，中间没有空行
+      reply(`${prefix}=
+`);
       // 之后异步输出分析行，直到收到换行/新命令
       let tick = 0;
       analyzing = setInterval(() => {

@@ -68,12 +68,25 @@ describe('分析输出解析', () => {
       'info move D4 visits 120 utility -0.2 winrate 0.5321 scoreLead -1.40 prior 0.21 order 0 ' +
       `pv D4 Q16 C3 unknownField 9 ownership ${ownership}`;
     const parsed = parseAnalyzeLine(line, 9);
-    expect(parsed.kind).toBe('info');
-    expect(parsed.candidate?.move).toBe('D4');
-    expect(parsed.candidate?.visits).toBe(120);
-    expect(parsed.candidate?.winrate).toBeCloseTo(0.5321, 4);
-    expect(parsed.candidate?.scoreLead).toBeCloseTo(-1.4, 2);
-    expect(parsed.candidate?.pv).toEqual(['D4', 'Q16', 'C3']);
+    const c = parsed.candidates[0]!;
+    expect(c.move).toBe('D4');
+    expect(c.visits).toBe(120);
+    expect(c.winrate).toBeCloseTo(0.5321, 4);
+    expect(c.scoreLead).toBeCloseTo(-1.4, 2);
+    expect(c.pv).toEqual(['D4', 'Q16', 'C3']);
+    expect(parsed.ownership?.length).toBe(81);
+  });
+
+  it('一行里串多个 info 段也能全部解析（真引擎格式）', () => {
+    const line =
+      'info move Q4 visits 10 winrate 0.4 scoreLead -1 order 0 pv Q4 D16 ' +
+      'info move D4 visits 8 winrate 0.42 scoreLead -0.8 order 1 pv D4 Q16 ' +
+      'rootInfo visits 300 winrate 0.41 scoreLead -0.9 ownership ' +
+      new Array(81).fill('0.2').join(' ');
+    const parsed = parseAnalyzeLine(line, 9);
+    expect(parsed.candidates.length).toBe(2);
+    expect(parsed.candidates.map((c) => c.move)).toEqual(['Q4', 'D4']);
+    expect(parsed.rootVisits).toBe(300);
     expect(parsed.ownership?.length).toBe(81);
   });
 
@@ -82,8 +95,8 @@ describe('分析输出解析', () => {
       'info move Q16 futureField 42 visits 88 winrate 0.61 scoreLead 3.2 order 1 pv Q16',
       19,
     );
-    expect(parsed.candidate?.move).toBe('Q16');
-    expect(parsed.candidate?.visits).toBe(88);
+    expect(parsed.candidates[0]?.move).toBe('Q16');
+    expect(parsed.candidates[0]?.visits).toBe(88);
   });
 });
 

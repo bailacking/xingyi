@@ -37,6 +37,17 @@ describe('服务端 REST', () => {
     expect(data.progress.placement.done).toBe(false);
   });
 
+  it('不传 size 时默认 19 路（回归：曾经 size 变 undefined，棋盘变空）', async () => {
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/game',
+      payload: { mode: 'free', playerColor: 'B', level: 3 },
+    });
+    const snap = created.json().snapshot;
+    expect(snap.size).toBe(19);
+    expect(snap.grid.length).toBe(361);
+  });
+
   it('未配置引擎时修习模式被拒（中文原因）', async () => {
     const res = await app.inject({ method: 'POST', url: '/api/game', payload: { mode: 'ranked' } });
     expect(res.statusCode).toBe(409);
