@@ -42,7 +42,7 @@
 | 模块 | 状态 | 已实现 | 未实现 |
 |---|---|---|---|
 | **自在**（free） | 可玩 | 9/13/19 路对局；AI 或离线对手；悔棋、停一手、认输、终局数子；SGF 导入/导出；分析面板（候选点 + 胜率 + 目差）；形势图（F）；候选变化幽灵子；点一颗子整块标死 | 自由摆子编辑（AB/AW/AE 拖拽摆放）；目差曲线；沿分支逐手跳转；"假设对手水平"滑杆 |
-| **修习**（ranked） | 可玩（参数未定死） | 3 盘自适应定级；前 10 盘暂定级；升降级 + 保级期 + 退级缓冲；跳档考核字段；`progress.json` + `.bak`；评级沙盘（设置页） | 等级校准分未定死（`data/ranks.json` 全部 `calibrated:false`）；跳档考核局 UI 未接 |
+| **修习**（ranked） | 可玩（等级表已实测） | 3 盘自适应定级；前 10 盘暂定级；升降级（阈值按局部步长）+ 保级期 + 退级缓冲；跳档考核字段；`progress.json` + `.bak`；评级沙盘（设置页） | 跳档考核局 UI 未接；逐级独立校准误差仍 ±150~480 |
 | **手谈**（lan） | 未开始 | 仅 `Mode='lan'` 与 CAPS 占位 | 房间、发现、协议、观战、聊天全部未做 |
 | 教学 / 题库 | 未开始 | `data/tsumego/`、`data/joseki/` 空目录 | 交互式教学、死活判题、10 题测级 |
 | 主题 | 两套内置可用 | `walnut`（胡桃木，默认）+ `youth`（星弈·青）；即时切换 + 5 秒撤销 | 主题预览卡片；zip 导入导出；`style.css` 加载白名单 |
@@ -247,7 +247,11 @@ K = baseK + RD / rdScale      （RD 大 → K 大 → 新号收敛快）
 
 **存档**：`progress.json`（当前级、R、RD、暂定标记、历史、连胜、保级/冷却计数、`schemaVersion`）。每次写盘前留 `.bak`；读坏时回退 `.bak` 再回退默认值。
 
-**校准现状（重要）**：只跑了一轮 9 路 × 8 盘/组（共 88 局），得出「平均每级差约 100 分」，但 95% 区间约 ±3 级，**不足以逐级定死**。因此 `data/ranks.json` 是按 100 分等距外推的表，`calibrated` 全为 `false`，UI 会提示「等级校准分未实测」。要定死：每组 40~100 盘（`scripts/calibrate.mjs`）。
+**校准现状（2026-10-18 定表）**：9 路 · 成对开局 · 每组 20 盘（两端 30 盘）· 共 **300 局**。
+线性阶梯 **step = 90 分/级，95% 区间 [50, 131]**；14 个相邻组全部落在模型 ±8 个百分点内，没有显著反向的组。
+`data/ranks.json` 的 A_k = 1525 + 90×(k−8)，全部 15 级 `calibrated: true`（每级 `ci95` 标的是逐级真实误差，±150~480）。
+**别把 per-level 的 ci95 当成"没校准"**——数据量只够定斜率；要每级 ±25 得每组 ~800 盘（约 20 小时）。
+细节与不完美之处见 `docs/评级说明.md` §八。
 
 ---
 
@@ -279,22 +283,22 @@ K = baseK + RD / rdScale      （RD 大 → K 大 → 新号收敛快）
 | 级 | 机制 | profile / maxVisits |
 |---|---|---|
 | 1–2 | human SL | `rank_20k` / `rank_18k`，1 / 2 |
-| 3–4 | human SL | `rank_16k` / `rank_14k`，4 / 6 |
-| 5–6 | human SL | `rank_12k` / `rank_10k`，10 / 16 |
-| 7–8 | human SL | `rank_8k` / `rank_6k`，24 / 36 |
-| 9–10 | human SL | `rank_4k` / `rank_2k`，60 / 90 |
-| 11 | human SL | `rank_1k`，140 |
-| 12–15 | 主模型 | 300 / 800 / 1500 / 3000 |
+| 3–4 | human SL | `rank_16k` / `rank_14k`，4 / 8 |
+| 5–6 | human SL | `rank_12k` / `rank_10k`，16 / 32 |
+| 7–8 | human SL | `rank_8k` / `rank_6k`，64 / 100 |
+| 9 | human SL | `rank_4k`，160 |
+| 10–15 | 主模型 | 5 / 10 / 20 / 40 / 80 / 160 visits |
 
-> 12 级以上必须切主模型：官方警告 human SL 在高段不保证真实强度（它几乎不搜索）。
+**为什么 10 级起就切主模型**（2026-10-18 实测）：human SL 到 `rank_1k` 后继续加访问量基本不再变强（240 与 320 visits 打平），
+而主模型 **5 visits 就比 `rank_1k`+320 高约 140 分**。所以人类风格只保留到 9 级，10~15 用主模型低访问量做连续刻度。
+
+**human SL 的可控性前提**：`humanSLChosenMoveProp=1` + `lambda`（PIKL 抑制）+ `rootExplore` 三者必须一起设。
+- `lambda` 大（1e8）= 纯模仿，**搜索被忽略、`maxVisits` 对选点无效**（官方 `gtp_human5k_example.cfg` 明说）
+- `lambda` 小（0.08~0.5）+ `rootExplore 0.8` = 搜索参与，`maxVisits` 才真的能调强度
+- 当前 1~9 级固定 `lambda=0.5`、`rootExplore=0.8`
+
+> 12 级以上用主模型还有另一个原因：官方警告 human SL 在高段不保证真实强度。
 > 同级 AI 强度固定（只随机开局），保证"你的进步"可比较。
-
-**⚠️ 1~11 级的 `maxVisits` 目前对选点几乎无效**：当前用 `humanSLChosenMoveProp=1` +
-`humanSLChosenMovePiklLambda=1e8`，官方配置注释明确说这种组合下搜索被忽略（只影响 pass/resign），
-`maxVisits` 调多少都不会改变棋力。档位强度实际只由 `humanSLProfile` 决定。
-要让 visits 生效得换一组旋钮（官方 `gtp_human9d_search_example.cfg`：`PiklLambda≈0.08`、
-`humanSLRootExploreProbWeightless=0.8`、`maxVisits 400`、`chosenMoveTemperature*`、
-`staticScoreUtilityFactor=0.5`）。校准数据与结论见 `docs/评级说明.md` §八。
 
 ### 9.4 GTP 协议要点（全部实测，不是文档推测）
 
@@ -423,7 +427,7 @@ node scripts/fit-ranks.mjs data/calibration/<stamp>.jsonl    # 保序回归 + �
 | 文件 | 入库 | 内容 |
 |---|---|---|
 | `data/config.json` | ✗ | 引擎路径/后端、UI 选项、游戏默认值、玩家名；见 `server/src/config.ts` |
-| `data/ranks.json` | ✓ | 15 级校准分 + 锚点 + 步长 + 测量时间/样本；`calibrated` 全 false |
+| `data/ranks.json` | ✓ | 15 级校准分 + 锚点 + step/stepCi95 + 每级 sample/ci95；`calibrated` = 斜率已实测 |
 | `progress.json` | ✗ | 当前级、R/RD、暂定、历史、连胜、保级/冷却、schemaVersion；写前 `.bak` |
 | `progress.json.bak` | ✗ | 上一版存档（损坏时回退） |
 | `data/games/*.sgf` | ✗ | 对局棋谱（导出/复盘） |
@@ -440,10 +444,10 @@ node scripts/fit-ranks.mjs data/calibration/<stamp>.jsonl    # 保序回归 + �
 
 | 阶段 | 内容 | 状态 |
 |---|---|---|
-| **P0** | 引擎跑通 + 分析流 + 规则引擎 + 15 级校准 | 完成；校准样本不足，表未定死 |
+| **P0** | 引擎跑通 + 分析流 + 规则引擎 + 15 级校准 | 完成；300 局实测，step=90（CI 50~131） |
 | **P1** | 自在：摆棋分析 | 大半；缺自由摆子编辑、目差曲线、逐手跳转 |
 | **P2** | 对 AI 下棋 + 复盘 | 对局与结算可用；缺逐手好/一般/失误标注、着法名、自动进复盘 |
-| **P3** | 修习：评级全流程 | 流程可跑；缺真实校准与跳档考核 UI |
+| **P3** | 修习：评级全流程 | 流程可跑；等级表已实测；缺跳档考核 UI |
 | **P4** | 教学 + 题库（≥1 套教学、≥100 题、10 题测级） | 未开始 |
 | **P5** | 手谈：局域网联机（发现 + 房间码 + 观战 + 聊天） | 未开始 |
 | **P6** | 主题：预览 + zip 导入导出 | 两套主题可用，其余未做 |

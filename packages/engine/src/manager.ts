@@ -63,6 +63,8 @@ export interface AnalyzeRequest {
   maxDurationMs?: number;
   intervalMs?: number;
   maxMoves?: number;
+  /** 本次分析的访问量上限（不传则用该级默认值） */
+  visits?: number;
   /** 假设对手水平（playoutDoublingAdvantage），null = 同水平 */
   assumeLevel?: number | null;
 }
@@ -306,14 +308,20 @@ export class EngineManager extends EventEmitter {
           `kata-set-params ${JSON.stringify({
             humanSLProfile: p.profile,
             humanSLChosenMoveProp: 1.0,
-            humanSLChosenMovePiklLambda: 1e9,
+            // lambda 小 → 搜索能压掉明显亏的人类着法（变强）；大 → 纯模仿（官方默认 1e8）
+            humanSLChosenMovePiklLambda: p.lambda,
+            humanSLRootExploreProbWeightless: p.rootExplore,
             humanSLChosenMoveIgnorePass: true,
           })}`,
         );
       }
     } else {
       await this.tryCmd(
-        `kata-set-params ${JSON.stringify({ humanSLProfile: '', humanSLChosenMoveProp: 0 })}`,
+        `kata-set-params ${JSON.stringify({
+          humanSLProfile: '',
+          humanSLChosenMoveProp: 0,
+          humanSLRootExploreProbWeightless: 0,
+        })}`,
       );
     }
     if (typeof assumeLevel === 'number' && Number.isFinite(assumeLevel)) {
@@ -372,6 +380,7 @@ export class EngineManager extends EventEmitter {
       maxDurationMs = 1600,
       intervalMs = 100,
       maxMoves = 6,
+      visits,
       assumeLevel = null,
     } = req;
 
@@ -382,6 +391,9 @@ export class EngineManager extends EventEmitter {
       try {
         await this.syncPosition(size, komi, moves);
         await this.applyLevelParams(level, assumeLevel);
+        if (typeof visits === 'number' && visits > 0) {
+          await this.tryCmd(`kata-set-param maxVisits ${Math.round(visits)}`);
+        }
         await this.tryCmd('kata-set-param analysisIgnorePreRootHistory true');
         session.beginAnalysis((line) => feedLine(acc, line));
         const cs = Math.max(10, Math.round(intervalMs / 10));

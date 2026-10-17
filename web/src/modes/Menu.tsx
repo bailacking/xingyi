@@ -62,7 +62,7 @@ export function Menu({ progress, engineReady, onSelect, onSettings }: MenuProps)
         )}
         {!progress.ranksCalibrated && progress.placement.done && (
           <div className="hint" style={{ marginTop: 12 }}>
-            等级校准分尚未实测，升降级幅度只是初版参数。
+            等级校准分尚未实测，升降级幅度只是初版参数（设置页可看当前等级表状态）。
           </div>
         )}
         {progress.streak >= 2 && <div className="stage-note">{levelCn(Math.abs(progress.streak)).replace('级', '')}连胜</div>}

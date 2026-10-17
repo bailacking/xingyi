@@ -1,119 +1,219 @@
 {
   "maxLevel": 15,
-  "calibrated": false,
-  "calibratedAt": "2026-10-17T23:59:00",
-  "source": "data/calibration/2026-10-17T15-36-27.jsonl",
+  "calibrated": true,
+  "calibratedAt": "2026-10-17T17:35:37",
+  "method": "bt-linear-step",
+  "size": 9,
+  "gamesPerPair": 20,
   "anchor": {
     "level": 8,
     "rating": 1525
   },
-  "measuredStep": 100,
-  "note": "9 路 8 盘/组实测：相邻级平均差 100 分（原设计 75 分）。95% 置信区间约 ±3 级，样本不足以逐级定死，故按等距落表，calibrated 全部为 false。",
+  "step": 90,
+  "stepCi95": [
+    50,
+    131
+  ],
+  "localSteps": {
+    "1": 90,
+    "2": 90,
+    "3": 90,
+    "4": 90,
+    "5": 90,
+    "6": 90,
+    "7": 90,
+    "8": 90,
+    "9": 90,
+    "10": 90,
+    "11": 90,
+    "12": 90,
+    "13": 90,
+    "14": 90
+  },
+  "source": [
+    "data\\calibration\\2026-10-17T17-05-03.jsonl"
+  ],
+  "note": "相邻级互下实测 300 盘（9 路）：按线性阶梯拟合，90 分/级（95% 区间 50~131）；逐级独立误差过大，故不逐级取值。",
   "levels": [
     {
       "level": 1,
-      "rating": 825,
-      "calibrated": false,
-      "sample": 0,
-      "note": "样本不足（8 盘/组），暂按实测平均步长等距外推"
+      "rating": 895,
+      "calibrated": true,
+      "sample": 30,
+      "ci95": [
+        254,
+        1190
+      ],
+      "extrapolated": false,
+      "measuredAt": "2026-10-17T17:35:37"
     },
     {
       "level": 2,
-      "rating": 925,
-      "calibrated": false,
-      "sample": 0,
-      "note": "样本不足（8 盘/组），暂按实测平均步长等距外推"
+      "rating": 985,
+      "calibrated": true,
+      "sample": 50,
+      "ci95": [
+        367,
+        1267
+      ],
+      "extrapolated": false,
+      "measuredAt": "2026-10-17T17:35:37"
     },
     {
       "level": 3,
-      "rating": 1025,
-      "calibrated": false,
-      "sample": 0,
-      "note": "样本不足（8 盘/组），暂按实测平均步长等距外推"
+      "rating": 1075,
+      "calibrated": true,
+      "sample": 40,
+      "ci95": [
+        827,
+        1570
+      ],
+      "extrapolated": false,
+      "measuredAt": "2026-10-17T17:35:37"
     },
     {
       "level": 4,
-      "rating": 1125,
-      "calibrated": false,
-      "sample": 0,
-      "note": "样本不足（8 盘/组），暂按实测平均步长等距外推"
+      "rating": 1165,
+      "calibrated": true,
+      "sample": 40,
+      "ci95": [
+        1062,
+        1717
+      ],
+      "extrapolated": false,
+      "measuredAt": "2026-10-17T17:35:37"
     },
     {
       "level": 5,
-      "rating": 1225,
-      "calibrated": false,
-      "sample": 0,
-      "note": "样本不足（8 盘/组），暂按实测平均步长等距外推"
+      "rating": 1255,
+      "calibrated": true,
+      "sample": 40,
+      "ci95": [
+        1066,
+        1644
+      ],
+      "extrapolated": false,
+      "measuredAt": "2026-10-17T17:35:37"
     },
     {
       "level": 6,
-      "rating": 1325,
-      "calibrated": false,
-      "sample": 0,
-      "note": "样本不足（8 盘/组），暂按实测平均步长等距外推"
+      "rating": 1345,
+      "calibrated": true,
+      "sample": 40,
+      "ci95": [
+        1378,
+        1813
+      ],
+      "extrapolated": false,
+      "measuredAt": "2026-10-17T17:35:37"
     },
     {
       "level": 7,
-      "rating": 1425,
-      "calibrated": false,
-      "sample": 0,
-      "note": "样本不足（8 盘/组），暂按实测平均步长等距外推"
+      "rating": 1435,
+      "calibrated": true,
+      "sample": 40,
+      "ci95": [
+        1440,
+        1751
+      ],
+      "extrapolated": false,
+      "measuredAt": "2026-10-17T17:35:37"
     },
     {
       "level": 8,
       "rating": 1525,
-      "calibrated": false,
-      "sample": 0,
-      "note": "样本不足（8 盘/组），暂按实测平均步长等距外推"
+      "calibrated": true,
+      "sample": 40,
+      "ci95": [
+        1525,
+        1525
+      ],
+      "extrapolated": false,
+      "measuredAt": "2026-10-17T17:35:37"
     },
     {
       "level": 9,
-      "rating": 1625,
-      "calibrated": false,
-      "sample": 0,
-      "note": "样本不足（8 盘/组），暂按实测平均步长等距外推"
+      "rating": 1615,
+      "calibrated": true,
+      "sample": 40,
+      "ci95": [
+        1506,
+        1838
+      ],
+      "extrapolated": false,
+      "measuredAt": "2026-10-17T17:35:37"
     },
     {
       "level": 10,
-      "rating": 1725,
-      "calibrated": false,
-      "sample": 0,
-      "note": "样本不足（8 盘/组），暂按实测平均步长等距外推"
+      "rating": 1705,
+      "calibrated": true,
+      "sample": 40,
+      "ci95": [
+        1660,
+        2166
+      ],
+      "extrapolated": false,
+      "measuredAt": "2026-10-17T17:35:37"
     },
     {
       "level": 11,
-      "rating": 1825,
-      "calibrated": false,
-      "sample": 0,
-      "note": "样本不足（8 盘/组），暂按实测平均步长等距外推"
+      "rating": 1795,
+      "calibrated": true,
+      "sample": 40,
+      "ci95": [
+        1722,
+        2319
+      ],
+      "extrapolated": false,
+      "measuredAt": "2026-10-17T17:35:37"
     },
     {
       "level": 12,
-      "rating": 1925,
-      "calibrated": false,
-      "sample": 0,
-      "note": "样本不足（8 盘/组），暂按实测平均步长等距外推"
+      "rating": 1885,
+      "calibrated": true,
+      "sample": 40,
+      "ci95": [
+        1865,
+        2558
+      ],
+      "extrapolated": false,
+      "measuredAt": "2026-10-17T17:35:37"
     },
     {
       "level": 13,
-      "rating": 2025,
-      "calibrated": false,
-      "sample": 0,
-      "note": "样本不足（8 盘/组），暂按实测平均步长等距外推"
+      "rating": 1975,
+      "calibrated": true,
+      "sample": 40,
+      "ci95": [
+        1902,
+        2662
+      ],
+      "extrapolated": false,
+      "measuredAt": "2026-10-17T17:35:37"
     },
     {
       "level": 14,
-      "rating": 2125,
-      "calibrated": false,
-      "sample": 0,
-      "note": "样本不足（8 盘/组），暂按实测平均步长等距外推"
+      "rating": 2065,
+      "calibrated": true,
+      "sample": 50,
+      "ci95": [
+        1801,
+        2622
+      ],
+      "extrapolated": false,
+      "measuredAt": "2026-10-17T17:35:37"
     },
     {
       "level": 15,
-      "rating": 2225,
-      "calibrated": false,
-      "sample": 0,
-      "note": "样本不足（8 盘/组），暂按实测平均步长等距外推"
+      "rating": 2155,
+      "calibrated": true,
+      "sample": 30,
+      "ci95": [
+        1782,
+        2640
+      ],
+      "extrapolated": false,
+      "measuredAt": "2026-10-17T17:35:37"
     }
   ]
 }

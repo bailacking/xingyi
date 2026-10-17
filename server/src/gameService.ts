@@ -74,10 +74,11 @@ export interface Settlement {
   placement?: { stage: number; done: boolean; level: number };
 }
 
+// 分析强度与「对局等级」解耦：等级表的下限档位访问量很低（5~160），借它分析会出垃圾。
 const DEPTH_PRESETS = {
-  quick: { minDurationMs: 180, maxDurationMs: 700, maxMoves: 5 },
-  standard: { minDurationMs: 260, maxDurationMs: 1600, maxMoves: 6 },
-  deep: { minDurationMs: 600, maxDurationMs: 4200, maxMoves: 8 },
+  quick: { minDurationMs: 180, maxDurationMs: 700, maxMoves: 5, visits: 200 },
+  standard: { minDurationMs: 260, maxDurationMs: 1600, maxMoves: 6, visits: 400 },
+  deep: { minDurationMs: 600, maxDurationMs: 4200, maxMoves: 8, visits: 900 },
 } as const;
 
 /**
@@ -490,8 +491,8 @@ export class GameService extends EventEmitter {
       komi: m.game.komi,
       moves: m.moveList(),
       turn: m.game.toPlay,
-      // 分析一律用主模型（13 级 = 800 visits）：human SL 的评估是"人类会怎么下"，不是"这盘谁好"
-      level: 13,
+      // 分析一律用主模型；访问量由分析档位单独给（不用等级表里的 visits）
+      level: 15,
       ...preset,
     });
     if (!result) return { available: false, reason: '引擎这次没给出结果（超时或局面异常），再试一次' };

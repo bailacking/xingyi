@@ -25,7 +25,13 @@ export function registerRoutes(app: FastifyInstance, service: GameService): void
     config: service.getConfig(),
     engine: service.engine.status,
     progress: service.progressSummary(),
-    ranks: { maxLevel: service.ranks.maxLevel, calibrated: service.ranks.calibrated },
+    ranks: {
+      maxLevel: service.ranks.maxLevel,
+      calibrated: service.ranks.calibrated,
+      step: service.ranks.step ?? null,
+      stepCi95: service.ranks.stepCi95 ?? null,
+      note: service.ranks.note ?? null,
+    },
     modes: CAPS,
     engineConfigured: service.engine.configured,
   }));

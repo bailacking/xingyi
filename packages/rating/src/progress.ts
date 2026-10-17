@@ -173,9 +173,19 @@ export function evaluateLevel(p: Progress, ranks: RankTable): {
   const nextRating = atMax ? Infinity : ratingOf(ranks, p.level + 1);
   const prevRating = p.level <= 1 ? -Infinity : ratingOf(ranks, p.level - 1);
 
+  // 阶梯不要求等距（实测每级 50~190 分），阈值按**本级局部步长**换算，
+  // 否则窄档位一局就升、宽档位怎么打都不升。
+  const curRating = ratingOf(ranks, p.level);
+  const stepUp = atMax ? 0 : Math.max(1, nextRating - curRating);
+  const stepDown = p.level <= 1 ? 0 : Math.max(1, curRating - prevRating);
+  const thrUp = Math.min(120, Math.max(20, Math.round(stepUp * 0.35)));
+  const thrDown = Math.min(150, Math.max(30, Math.round(stepDown * 0.5)));
+  const promoteLine = nextRating - thrUp;
+  const demoteLine = prevRating - thrDown;
+
   const promote =
     !atMax &&
-    p.R >= nextRating - 50 &&
+    p.R >= promoteLine &&
     p.levelGames >= 3 &&
     (p.streak >= 2 || winRate >= 0.6);
 
@@ -183,14 +193,14 @@ export function evaluateLevel(p: Progress, ranks: RankTable): {
     p.level > 1 &&
     p.protection <= 0 &&
     p.demotionBuffer <= 0 &&
-    p.R < prevRating - 100 &&
+    p.R < demoteLine &&
     p.streak <= -2;
 
   // 「可进一级」：连胜 ≥3 且已够分（考核局由玩家点出来）
-  const pending = !atMax && p.streak >= 3 && p.R >= nextRating - 50 && p.promotionCooldown <= 0;
+  const pending = !atMax && p.streak >= 3 && p.R >= promoteLine && p.promotionCooldown <= 0;
 
-  if (promote) notes.push(`R=${p.R} ≥ ${nextRating - 50}，满足升级条件`);
-  if (demote) notes.push(`R=${p.R} < ${prevRating - 100} 且连败，触发降级`);
+  if (promote) notes.push(`R=${p.R} ≥ ${promoteLine}（本级步长 ${stepUp} 分），满足升级条件`);
+  if (demote) notes.push(`R=${p.R} < ${demoteLine}（本级步长 ${stepDown} 分）且连败，触发降级`);
   if (pending) notes.push('连胜 ≥3，可发起跳档考核');
   return { promote, demote, pending, reason: notes.join('；') };
 }

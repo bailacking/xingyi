@@ -434,7 +434,7 @@ export function Settings({ bootstrap, themeId, onTheme, onBack, onBootstrap }: S
             <span className="panel-sub">只在副本上跑，不动存档</span>
           </div>
           <div className="hint">
-            等级校准分还没实测，先用沙盘看看升降级手感：从你当前级起跑 12 盘，三种走势各跑一遍。
+            等级表已实测（约 90 分/级）。想看升降手感可以用沙盘：从你当前级起跑 12 盘，三种走势各跑一遍。
           </div>
           <div className="controls" style={{ marginTop: 10 }}>
             {(
@@ -499,7 +499,15 @@ export function Settings({ bootstrap, themeId, onTheme, onBack, onBootstrap }: S
             <br />
             等级 1~15 为业余向成长线，满级不是本机最强（KataGo 全力远超人类）。
             <br />
-            {bootstrap.ranks.calibrated ? '等级校准分已实测。' : '⚠️ 等级校准分尚未实测（ranks.json 为占位值），升降级幅度待校准。'}
+            {bootstrap.ranks.calibrated
+              ? `等级校准分已实测${bootstrap.ranks.step ? `（中位步长 ${bootstrap.ranks.step} 分/级）` : ''}。`
+              : '⚠️ 等级校准分尚未实测（ranks.json 为占位值），升降级幅度待校准。'}
+            {bootstrap.ranks.note ? (
+              <>
+                <br />
+                <span style={{ opacity: 0.75 }}>{bootstrap.ranks.note}</span>
+              </>
+            ) : null}
           </div>
         </section>
       </div>

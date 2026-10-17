@@ -12,6 +12,7 @@ import {
   kFactor,
   loadProgressFile,
   normalizeProgress,
+  normalizeRankTable,
   ratingOf,
   recordPlacementResult,
   saveProgressFile,
@@ -158,9 +159,27 @@ describe('升降级判定', () => {
     p.levelGames = 3;
     p.levelWins = 2;
     p.streak = 2;
-    p.R = ratingOf(ranks, 6) - 40;
+    // 默认表步长 75 → 升级线 = A6 − max(20, 0.35×75) ≈ A6 − 26
+    p.R = ratingOf(ranks, 6) - 20;
     const v = evaluateLevel(p, ranks);
     expect(v.promote).toBe(true);
+  });
+
+  it('升级线随局部步长缩放（宽档位不会一局就升）', () => {
+    const wide = normalizeRankTable({
+      maxLevel: 15,
+      levels: Array.from({ length: 15 }, (_, i) => ({ level: i + 1, rating: 1525 + (i + 1 - 8) * 200 })),
+    });
+    const p = createProgress();
+    p.level = 5;
+    p.levelGames = 3;
+    p.levelWins = 2;
+    p.streak = 2;
+    // 步长 200 → 阈值 70：差 80 分不该升，差 30 分该升
+    p.R = ratingOf(wide, 6) - 80;
+    expect(evaluateLevel(p, wide).promote).toBe(false);
+    p.R = ratingOf(wide, 6) - 30;
+    expect(evaluateLevel(p, wide).promote).toBe(true);
   });
 
   it('本级不足 3 盘不升', () => {
@@ -211,8 +230,35 @@ describe('升降级判定', () => {
     p.levelGames = 3;
     p.levelWins = 3;
     p.streak = 3;
-    p.R = ratingOf(ranks, 6) - 30;
+    p.R = ratingOf(ranks, 6) - 20;
     expect(evaluateLevel(p, ranks).pending).toBe(true);
+  });
+});
+
+describe('等级表规范化', () => {
+  it('外推级不算"未实测"：全部已校准或外推时表级 calibrated 为真', () => {
+    const raw = {
+      maxLevel: 15,
+      levels: Array.from({ length: 15 }, (_, i) => ({
+        level: i + 1,
+        rating: 1525 + (i + 1 - 8) * 100,
+        calibrated: i < 12,
+        extrapolated: i >= 12,
+        sample: i < 12 ? 40 : 0,
+      })),
+    };
+    const t = normalizeRankTable(raw);
+    expect(t.calibrated).toBe(true);
+    expect(t.levels[13]?.extrapolated).toBe(true);
+    expect(t.levels[13]?.calibrated).toBe(false);
+  });
+
+  it('全是外推、没有任何实测 → 表级 calibrated 仍为假', () => {
+    const raw = {
+      maxLevel: 15,
+      levels: Array.from({ length: 15 }, (_, i) => ({ level: i + 1, rating: 1525, extrapolated: true })),
+    };
+    expect(normalizeRankTable(raw).calibrated).toBe(false);
   });
 });
 
@@ -268,7 +314,9 @@ describe('存档', () => {
     fs.writeFileSync(file, '{ 坏档', 'utf8');
     const loaded = loadProgressFile(file);
     expect(loaded?.playerName).toBe('大帅');
-    expect(fs.existsSync(path.join(backupDir, `progress-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}.json`))).toBe(true);
+    const now = new Date();
+    const localKey = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
+    expect(fs.existsSync(path.join(backupDir, `progress-${localKey}.json`))).toBe(true);
   });
 
   it('旧存档缺字段也能读（normalize 补齐）', () => {

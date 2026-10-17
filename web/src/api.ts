@@ -45,7 +45,7 @@ export interface Bootstrap {
   config: AppConfigLike;
   engine: EngineStatus;
   progress: ProgressView;
-  ranks: { maxLevel: number; calibrated: boolean };
+  ranks: { maxLevel: number; calibrated: boolean; step?: number | null; stepCi95?: [number, number] | null; note?: string | null };
   modes: Record<Mode, Record<string, boolean>>;
   engineConfigured: boolean;
 }
