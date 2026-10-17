@@ -1,0 +1,35 @@
+{
+  "name": "xingyi",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "星弈 · 本地围棋修炼软件",
+  "license": "MIT",
+  "workspaces": [
+    "packages/*",
+    "server",
+    "web"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build:packages": "tsc -b packages/shared packages/rules packages/rating packages/engine",
+    "clean:packages": "tsc -b packages/shared packages/rules packages/rating packages/engine --clean",
+    "dev": "npm run build:packages && concurrently -n server,web -c cyan,magenta \"npm:dev:server\" \"npm:dev:web\"",
+    "dev:server": "npm run dev --workspace @xingyi/server",
+    "dev:web": "npm run dev --workspace @xingyi/web",
+    "build": "npm run build:packages && npm run build --workspace @xingyi/server && npm run build --workspace @xingyi/web",
+    "start": "node server/dist/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "npm run build:packages && tsc --noEmit -p server/tsconfig.json && tsc --noEmit -p web/tsconfig.json",
+    "format:check": "echo 'prettier 未安装（P8 前引入）'"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}
