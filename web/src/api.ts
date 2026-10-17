@@ -2,12 +2,15 @@ import { useEffect, useRef, useState } from 'react';
 import type {
   AnalysisResult,
   AppConfigLike,
+  Color,
   EngineStatus,
   GameSnapshot,
   HardwareReport,
   Mode,
   ProgressView,
   ReviewResult,
+  RoomChat,
+  RoomView,
   Settlement,
 } from './types';
 
@@ -116,6 +119,28 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ depth, assumeLevel }),
     }),
+  roomCreate: (p: { size?: 9 | 13 | 19; komi?: number; name?: string; clientId: string }) =>
+    req<{ room: RoomView; color: Color | 'spectator' }>('/api/room', { method: 'POST', body: JSON.stringify(p) }),
+  roomJoin: (code: string, p: { name?: string; clientId: string }) =>
+    req<{ room: RoomView; color: Color | 'spectator' }>(`/api/room/${code}/join`, {
+      method: 'POST',
+      body: JSON.stringify(p),
+    }),
+  roomGet: (code: string) => req<{ room: RoomView; chat: RoomChat[] }>(`/api/room/${code}`),
+  roomAction: (code: string, p: { clientId: string; action: string; vertex?: number }) =>
+    req<{ room: RoomView; chat: RoomChat[] }>(`/api/room/${code}/action`, {
+      method: 'POST',
+      body: JSON.stringify(p),
+    }),
+  roomSay: (code: string, p: { clientId: string; text: string }) =>
+    req<{ room: RoomView; chat: RoomChat[] }>(`/api/room/${code}/chat`, {
+      method: 'POST',
+      body: JSON.stringify(p),
+    }),
+  roomDiscover: () =>
+    req<{ rooms: { code: string; size: number; host: string; port: number; status?: string }[] }>(
+      '/api/room/discover',
+    ),
   newSetupGame: (p: { size: 9 | 13 | 19; grid: number[]; toPlay?: 'B' | 'W'; komi?: number }) =>
     req<GameResponse>('/api/game/setup', { method: 'POST', body: JSON.stringify(p) }),
   importSgf: (text: string) =>

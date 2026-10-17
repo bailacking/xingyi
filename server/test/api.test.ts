@@ -271,6 +271,53 @@ describe('服务端 REST', () => {
     expect(String(res.json().reason)).toMatch(/引擎|着手|复盘/);
   });
 
+  it('手谈：创建/加入/观战/落子/悔棋征得同意/认输', async () => {
+    const created = await app.inject({ method: 'POST', url: '/api/room', payload: { size: 9, name: '房主', clientId: 'a' } });
+    expect(created.statusCode).toBe(200);
+    const code = created.json().room.code as string;
+    expect(created.json().room.status).toBe('waiting');
+    expect(created.json().color).toBe('B');
+
+    const joined = await app.inject({ method: 'POST', url: `/api/room/${code}/join`, payload: { name: '棋友', clientId: 'b' } });
+    expect(joined.json().color).toBe('W');
+    expect(joined.json().room.status).toBe('playing');
+
+    const spec = await app.inject({ method: 'POST', url: `/api/room/${code}/join`, payload: { name: '观众', clientId: 'c' } });
+    expect(spec.json().color).toBe('spectator');
+    expect(spec.json().room.spectators).toBe(1);
+
+    // 观众不能落子
+    const bad = await app.inject({
+      method: 'POST',
+      url: `/api/room/${code}/action`,
+      payload: { clientId: 'c', action: 'move', vertex: idx(9, 4, 4) },
+    });
+    expect(bad.statusCode).toBe(403);
+
+    await app.inject({ method: 'POST', url: `/api/room/${code}/action`, payload: { clientId: 'a', action: 'move', vertex: idx(9, 4, 4) } });
+    const w = await app.inject({ method: 'POST', url: `/api/room/${code}/action`, payload: { clientId: 'b', action: 'move', vertex: idx(9, 3, 3) } });
+    expect(w.json().room.moves.length).toBe(2);
+
+    const reqUndo = await app.inject({ method: 'POST', url: `/api/room/${code}/action`, payload: { clientId: 'a', action: 'undo' } });
+    expect(reqUndo.json().room.undoRequest).toEqual({ by: 'B' });
+    const denied = await app.inject({ method: 'POST', url: `/api/room/${code}/action`, payload: { clientId: 'a', action: 'undo-yes' } });
+    expect(denied.statusCode).toBe(400);
+    const accepted = await app.inject({ method: 'POST', url: `/api/room/${code}/action`, payload: { clientId: 'b', action: 'undo-yes' } });
+    expect(accepted.json().room.moves.length).toBe(1);
+
+    const chat = await app.inject({ method: 'POST', url: `/api/room/${code}/chat`, payload: { clientId: 'c', text: '加油' } });
+    expect(chat.json().chat.at(-1).text).toBe('加油');
+
+    const resign = await app.inject({ method: 'POST', url: `/api/room/${code}/action`, payload: { clientId: 'b', action: 'resign' } });
+    expect(resign.json().room.status).toBe('finished');
+    expect(String(resign.json().room.result)).toContain('认输');
+  });
+
+  it('手谈：房间码不存在给 404', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/room/ZZZZZZ' });
+    expect(res.statusCode).toBe(404);
+  });
+
   it('修改名字写进进度', async () => {
     const res = await app.inject({ method: 'POST', url: '/api/progress/name', payload: { name: '大帅' } });
     expect(res.statusCode).toBe(200);

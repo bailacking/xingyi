@@ -4,6 +4,7 @@ import { dataPaths } from './paths.js';
 import { loadConfig } from './config.js';
 import { GameService } from './gameService.js';
 import { createApp } from './app.js';
+import { startBeacon } from './discovery.js';
 
 async function main(): Promise<void> {
   const paths = dataPaths();
@@ -17,7 +18,8 @@ async function main(): Promise<void> {
   let port = desired;
   for (let attempt = 0; ; attempt++) {
     try {
-      await app.listen({ port, host: '127.0.0.1' });
+      // 手谈要手机/平板在局域网里连进来，必须监听所有网卡
+      await app.listen({ port, host: '0.0.0.0' });
       break;
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code;
@@ -45,11 +47,14 @@ async function main(): Promise<void> {
   service.on('game', (snapshot) => broadcast({ type: 'game', data: snapshot }));
   service.on('engine', (status) => broadcast({ type: 'engine', data: status }));
   service.on('progress', (progress) => broadcast({ type: 'progress', data: progress }));
+  service.on('room', (room) => broadcast({ type: 'room', data: room }));
   service.on('error', (err) => broadcast({ type: 'error', data: err }));
 
   await service.init();
+  const stopBeacon = startBeacon(() => service.listRooms().map((r) => ({ code: r.code, size: r.size, status: r.status })));
 
   const shutdown = (): void => {
+    stopBeacon();
     void service.engine.stop().finally(() => void app.close().finally(() => process.exit(0)));
   };
   process.on('SIGINT', shutdown);

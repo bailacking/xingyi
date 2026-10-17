@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, type Bootstrap, type SocketEvent } from './api';
 import { GameView } from './modes/GameView';
-import { LanPlaceholder, Menu } from './modes/Menu';
+import { Menu } from './modes/Menu';
+import { LanView } from './modes/LanView';
 import { Settings } from './Settings';
 import { configureSound } from './sound';
 import { SKINS, cssVars, skinById } from './theme/skins';
@@ -193,7 +194,7 @@ export function App() {
         />
       )}
 
-      {view === 'lan' && <LanPlaceholder onBack={() => setView('menu')} />}
+      {view === 'lan' && <LanView bootstrap={boot!} onBack={() => setView('menu')} />}
 
       {view === 'settings' && (
         <Settings

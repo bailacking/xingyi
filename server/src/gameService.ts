@@ -16,9 +16,11 @@ import {
   type Mode,
   type ReviewPoint,
   type ReviewResult,
+  type RoomSeat,
   type Vertex,
 } from '@xingyi/shared';
 import { Game } from '@xingyi/rules';
+import { Room, RoomError, makeRoomCode } from './room.js';
 import { detectHardware, offlineMove, type CheckResult, type EngineManager } from '@xingyi/engine';
 import {
   applyJumpExam,
@@ -90,6 +92,7 @@ const DEPTH_PRESETS = {
 export class GameService extends EventEmitter {
   private readonly paths: DataPaths;
   private readonly matches = new Map<string, Match>();
+  private readonly rooms = new Map<string, Room>();
   cfg: AppConfig;
   progress: Progress;
   ranks: RankTable;
@@ -659,6 +662,92 @@ export class GameService extends EventEmitter {
       nextLevelRating: p.level < this.ranks.maxLevel ? ratingOf(this.ranks, p.level + 1) : null,
       ranksCalibrated: this.ranks.calibrated,
     };
+  }
+
+  // ------------------------------------------------------------ 手谈（联机房间）
+
+  createRoom(opts: { size?: BoardSize; komi?: number; name?: string; clientId: string }): RoomSeat {
+    const size: BoardSize = BOARD_SIZES.includes(opts.size ?? 19) ? (opts.size as BoardSize) : 19;
+    const komi = Number.isFinite(opts.komi) ? Number(opts.komi) : DEFAULT_KOMI;
+    const name = (opts.name ?? '').trim().slice(0, 12) || '房主';
+    const room = new Room(makeRoomCode(new Set(this.rooms.keys())), size, komi);
+    this.rooms.set(room.code, room);
+    const color = room.seat(opts.clientId, name);
+    this.emit('room', room.snapshot());
+    return { room: room.snapshot(), color };
+  }
+
+  joinRoom(code: string, opts: { name?: string; clientId: string }): RoomSeat {
+    const room = this.roomOf(code);
+    const name = (opts.name ?? '').trim().slice(0, 12) || '棋友';
+    const color = room.seat(opts.clientId, name);
+    this.emit('room', room.snapshot());
+    return { room: room.snapshot(), color };
+  }
+
+  getRoom(code: string): Room {
+    return this.roomOf(code);
+  }
+
+  listRooms(): { code: string; size: number; black: string | null; white: string | null; status: string }[] {
+    return [...this.rooms.values()].map((r) => {
+      const s = r.snapshot();
+      return { code: s.code, size: s.size, black: s.black, white: s.white, status: s.status };
+    });
+  }
+
+  roomAction(
+    code: string,
+    clientId: string,
+    action: 'move' | 'pass' | 'resign' | 'undo' | 'undo-yes' | 'undo-no' | 'leave',
+    payload?: { vertex?: number },
+  ): Room {
+    const room = this.roomOf(code);
+    if (!clientId) throw new ServiceError(400, '缺少客户端标识');
+    try {
+      switch (action) {
+        case 'move':
+          room.play(clientId, Number(payload?.vertex));
+          break;
+        case 'pass':
+          room.pass(clientId);
+          break;
+        case 'resign':
+          room.resign(clientId);
+          break;
+        case 'undo':
+          room.requestUndo(clientId);
+          break;
+        case 'undo-yes':
+          room.answerUndo(clientId, true);
+          break;
+        case 'undo-no':
+          room.answerUndo(clientId, false);
+          break;
+        case 'leave':
+          room.leave(clientId);
+          if (!room.black && !room.white && room.spectators.size === 0) this.rooms.delete(room.code);
+          break;
+      }
+    } catch (err) {
+      if (err instanceof RoomError) throw new ServiceError(err.status, err.message);
+      throw err;
+    }
+    this.emit('room', room.snapshot());
+    return room;
+  }
+
+  roomChat(code: string, clientId: string, text: string): Room {
+    const room = this.roomOf(code);
+    room.say(clientId, text);
+    this.emit('room', room.snapshot());
+    return room;
+  }
+
+  private roomOf(code: string): Room {
+    const room = this.rooms.get(String(code ?? '').toUpperCase());
+    if (!room) throw new ServiceError(404, '没有这个房间（房间码错了，或房主已经退出）');
+    return room;
   }
 
   /** 导出进度：存档 + 等级表，换机器时导入用（当前只导出，不自动导入） */

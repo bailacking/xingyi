@@ -15,6 +15,8 @@ export type {
   ReviewLabel,
   ReviewPoint,
   ReviewResult,
+  RoomChat,
+  RoomView,
   ScoreDetail,
   ThemeTokens,
   Vertex,

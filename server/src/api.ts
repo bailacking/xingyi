@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { APP_NAME, APP_NAME_EN, APP_VERSION, BOARD_SIZES, CAPS, type Mode } from '@xingyi/shared';
 import { toSgf } from './sgf.js';
 import { GameService, ServiceError } from './gameService.js';
+import { discoverRooms } from './discovery.js';
 
 function body<T>(req: FastifyRequest): T {
   return (req.body ?? {}) as T;
@@ -70,6 +71,43 @@ export function registerRoutes(app: FastifyInstance, service: GameService): void
     if (b.grid.some((c) => c !== 0 && c !== 1 && c !== 2)) throw new ServiceError(400, '盘面里只有黑白空三种格子');
     const match = service.createFromSetup(b.size, b.grid, b.toPlay ?? 'B', b.komi ?? 7.5);
     return { ...snapshotOf(match), opponent: match.opponent, isPlacement: false, examLevel: null };
+  });
+
+  // ---------------- 手谈（联机房间） ----------------
+
+  app.post('/api/room', async (req) => {
+    const b = body<{ size?: 9 | 13 | 19; komi?: number; name?: string; clientId?: string }>(req);
+    if (!b.clientId) throw new ServiceError(400, '缺少客户端标识');
+    return service.createRoom({ size: b.size, komi: b.komi, name: b.name, clientId: b.clientId });
+  });
+
+  app.get('/api/room/discover', async () => ({ rooms: await discoverRooms() }));
+
+  app.post<{ Params: { code: string } }>('/api/room/:code/join', async (req) => {
+    const b = body<{ name?: string; clientId?: string }>(req);
+    if (!b.clientId) throw new ServiceError(400, '缺少客户端标识');
+    return service.joinRoom(req.params.code, { name: b.name, clientId: b.clientId });
+  });
+
+  app.get<{ Params: { code: string } }>('/api/room/:code', async (req) => {
+    const room = service.getRoom(req.params.code);
+    return { room: room.snapshot(), chat: room.chat };
+  });
+
+  app.post<{ Params: { code: string } }>('/api/room/:code/action', async (req) => {
+    const b = body<{ clientId?: string; action?: string; vertex?: number }>(req);
+    const allowed = ['move', 'pass', 'resign', 'undo', 'undo-yes', 'undo-no', 'leave'] as const;
+    type Action = (typeof allowed)[number];
+    if (!b.action || !allowed.includes(b.action as Action)) throw new ServiceError(400, '未知操作');
+    const room = service.roomAction(req.params.code, b.clientId ?? '', b.action as Action, { vertex: b.vertex });
+    return { room: room.snapshot(), chat: room.chat };
+  });
+
+  app.post<{ Params: { code: string } }>('/api/room/:code/chat', async (req) => {
+    const b = body<{ clientId?: string; text?: string }>(req);
+    if (!b.clientId) throw new ServiceError(400, '缺少客户端标识');
+    const room = service.roomChat(req.params.code, b.clientId, String(b.text ?? ''));
+    return { room: room.snapshot(), chat: room.chat };
   });
 
   app.get('/api/matches', async () => service.listMatches());

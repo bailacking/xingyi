@@ -11,7 +11,7 @@ export function Menu({ progress, engineReady, onSelect, onSettings }: MenuProps)
   const modes: { mode: Mode; disabled: boolean; note?: string }[] = [
     { mode: 'ranked', disabled: !engineReady, note: engineReady ? undefined : '需先配置引擎' },
     { mode: 'free', disabled: false },
-    { mode: 'lan', disabled: true, note: 'P5 开放' },
+    { mode: 'lan', disabled: false, note: '局域网 · 不计进度' },
   ];
 
   return (

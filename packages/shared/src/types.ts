@@ -168,6 +168,40 @@ export interface GameSnapshot {
   updatedAt: string;
 }
 
+// ---------------------------------------------------------------- 手谈（联机）
+
+export type RoomStatus = 'waiting' | 'playing' | 'finished';
+
+export interface RoomView {
+  code: string;
+  size: BoardSize;
+  komi: number;
+  status: RoomStatus;
+  toPlay: Color;
+  grid: number[];
+  moves: { color: Color; vertex: Vertex }[];
+  lastMove: Vertex | null;
+  black: string | null;
+  white: string | null;
+  spectators: number;
+  result: string | null;
+  /** 有人申请悔棋，等对方同意 */
+  undoRequest: { by: Color } | null;
+  createdAt: string;
+}
+
+export interface RoomChat {
+  id: number;
+  name: string;
+  text: string;
+  at: string;
+}
+
+export interface RoomSeat {
+  room: RoomView;
+  color: Color | 'spectator';
+}
+
 // ---------------------------------------------------------------- 分析
 
 export interface AnalysisCandidate {
