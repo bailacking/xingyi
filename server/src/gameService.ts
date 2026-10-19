@@ -161,6 +161,11 @@ export class GameService extends EventEmitter {
         }
         this.emitGame(m);
       }
+      // 手谈房间的棋钟（W2）：每秒推一次快照，两边的钟才会走；超时判负在 snapshot 里做
+      for (const r of this.rooms.values()) {
+        if (!r.clock || r.status !== 'playing') continue;
+        this.emit('room', r.snapshot());
+      }
     }, 1000);
     // 别让计时循环把进程钉死（服务正常退出时允许结束）
     this.clockTimer.unref?.();
@@ -772,11 +777,20 @@ export class GameService extends EventEmitter {
 
   // ------------------------------------------------------------ 手谈（联机房间）
 
-  createRoom(opts: { size?: BoardSize; komi?: number; name?: string; clientId: string }): RoomSeat {
+  createRoom(opts: {
+    size?: BoardSize;
+    komi?: number;
+    name?: string;
+    clientId: string;
+    /** 与 /api/game 同结构：null = 不限时，不传 = 10 分 + 3×30 秒 */
+    timeControl?: TimeControl | null;
+  }): RoomSeat {
     const size: BoardSize = BOARD_SIZES.includes(opts.size ?? 19) ? (opts.size as BoardSize) : 19;
     const komi = Number.isFinite(opts.komi) ? Number(opts.komi) : DEFAULT_KOMI;
     const name = (opts.name ?? '').trim().slice(0, 12) || '房主';
-    const room = new Room(makeRoomCode(new Set(this.rooms.keys())), size, komi);
+    const timeControl: TimeControl | null =
+      opts.timeControl === null ? null : (opts.timeControl ?? DEFAULT_TIME_CONTROL);
+    const room = new Room(makeRoomCode(new Set(this.rooms.keys())), size, komi, timeControl);
     this.rooms.set(room.code, room);
     const color = room.seat(opts.clientId, name);
     this.emit('room', room.snapshot());

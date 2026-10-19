@@ -209,6 +209,10 @@ export interface RoomView {
   white: string | null;
   spectators: number;
   result: string | null;
+  /** 终局原因（W2：超时/认输/离开/数子）；旧数据可能缺省 */
+  resultReason?: EndReason | null;
+  /** 棋钟；null/缺省 = 不限时 */
+  clock?: ClockView | null;
   /** 有人申请悔棋，等对方同意 */
   undoRequest: { by: Color } | null;
   createdAt: string;

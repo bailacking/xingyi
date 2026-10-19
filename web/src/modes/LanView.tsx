@@ -4,6 +4,7 @@ import { QrCode } from '../panels/QrCode';
 import { api, ApiError, useSocket, type Bootstrap } from '../api';
 import { playBell, playStone } from '../sound';
 import type { Color, RoomChat, RoomView } from '../types';
+import '../styles/lan.css';
 
 interface LanViewProps {
   bootstrap: Bootstrap;
@@ -12,6 +13,39 @@ interface LanViewProps {
 
 const CLIENT_KEY = 'xingyi.clientId';
 const ROOM_KEY = 'xingyi.roomCode';
+
+type TimeControlLike = { mainSec: number; byoYomiSec: number; periods: number };
+
+/** 时间制预设（与服务端 server/src/clock.ts 的 TIME_PRESETS 对齐，改一处要改两处） */
+const TIME_PRESETS: { id: string; name: string; control: TimeControlLike | null }[] = [
+  { id: 'none', name: '不限时', control: null },
+  { id: '10m', name: '10 分 + 3×30 秒', control: { mainSec: 600, byoYomiSec: 30, periods: 3 } },
+  { id: '5m', name: '5 分 + 3×30 秒', control: { mainSec: 300, byoYomiSec: 30, periods: 3 } },
+  { id: 'blitz', name: '3 分包干', control: { mainSec: 180, byoYomiSec: 0, periods: 0 } },
+];
+
+const controlName = (c: TimeControlLike | null): string => {
+  if (!c) return '不限时';
+  const hit = TIME_PRESETS.find(
+    (p) =>
+      p.control &&
+      p.control.mainSec === c.mainSec &&
+      p.control.byoYomiSec === c.byoYomiSec &&
+      p.control.periods === c.periods,
+  );
+  if (hit) return hit.name;
+  // 不足一分钟的（测试/极速局）直接报秒，别显示成「0 分」
+  const main = c.mainSec >= 60 ? `${Math.round(c.mainSec / 60)} 分` : `${c.mainSec} 秒`;
+  if (!c.periods) return `${main}包干`;
+  return `${main} + ${c.periods}×${c.byoYomiSec} 秒`;
+};
+
+const fmtClock = (ms: number): string => {
+  const total = Math.ceil(ms / 1000);
+  const m = Math.floor(total / 60);
+  const sec = total % 60;
+  return String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0');
+};
 
 function clientId(): string {
   let id = localStorage.getItem(CLIENT_KEY);
@@ -35,6 +69,7 @@ export function LanView({ bootstrap, onBack }: LanViewProps) {
   const [chat, setChat] = useState<RoomChat[]>([]);
   const [code, setCode] = useState('');
   const [size, setSize] = useState<9 | 13 | 19>(9);
+  const [timePreset, setTimePreset] = useState('10m');
   const [text, setText] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -94,6 +129,12 @@ export function LanView({ bootstrap, onBack }: LanViewProps) {
     ingest({ room: payload.room, chat: payload.chat }, true);
   });
 
+  // WS 刚建立前 connected 也是 false，别在进房间的第一帧闪一条「连接断开」
+  const [everConnected, setEverConnected] = useState(false);
+  useEffect(() => {
+    if (connected) setEverConnected(true);
+  }, [connected]);
+
   // 兜底：WS 断了才需要轮询，间隔放宽到 6 秒，别把「推送」做成「轮询换皮」
   useEffect(() => {
     const current = room?.code;
@@ -142,7 +183,14 @@ export function LanView({ bootstrap, onBack }: LanViewProps) {
   const create = async (): Promise<void> => {
     setBusy(true);
     try {
-      const res = await api.roomCreate({ size, komi: 7.5, name: bootstrap.progress.playerName, clientId: me });
+      const preset = TIME_PRESETS.find((p) => p.id === timePreset) ?? TIME_PRESETS[1];
+      const res = await api.roomCreate({
+        size,
+        komi: 7.5,
+        name: bootstrap.progress.playerName,
+        clientId: me,
+        timeControl: preset.control,
+      });
       setRoom(res.room);
       setMyColor(res.color);
       setChat([]);
@@ -226,6 +274,8 @@ export function LanView({ bootstrap, onBack }: LanViewProps) {
 
   const myTurn = Boolean(room && room.status === 'playing' && room.toPlay === myColor);
   const boardSize = room?.size ?? size;
+  const isSpectator = myColor === 'spectator';
+  const clock = room?.clock ?? null;
 
   return (
     <div className="game">
@@ -256,6 +306,39 @@ export function LanView({ bootstrap, onBack }: LanViewProps) {
           )}
         </div>
 
+        {room && everConnected && !connected && (
+          <div className="lan-banner lan-banner-warn">连接断开，正在重连…（这期间棋盘不会更新）</div>
+        )}
+        {room && isSpectator && <div className="lan-banner">观战中 · 只能看不能下</div>}
+
+        {room && clock && (
+          <div className="clock-bar">
+            {(['B', 'W'] as const).map((c) => {
+              const ms = c === 'B' ? clock.blackMs : clock.whiteMs;
+              const byo = clock.inByoYomi[c];
+              const low = ms <= 20000;
+              return (
+                <span
+                  key={c}
+                  className={'clock' + (clock.running === c ? ' is-running' : '') + (low ? ' is-low' : '')}
+                >
+                  <b>{c === 'B' ? '黑' : '白'}</b>
+                  <span className="clock-time">{fmtClock(ms)}</span>
+                  {byo && (
+                    <span className="clock-byo">
+                      读秒 {'●'.repeat(Math.max(0, clock.periods[c]))}
+                      {clock.periods[c] === 0 ? '最后' : ''}
+                    </span>
+                  )}
+                </span>
+              );
+            })}
+            <span className="clock-meta">
+              {room.status === 'finished' ? '已终局' : clock.running ? '走表中' : '等对手入座'}
+            </span>
+          </div>
+        )}
+
         <div className="board-wrap">
           <Board
             size={boardSize}
@@ -279,17 +362,31 @@ export function LanView({ bootstrap, onBack }: LanViewProps) {
               <span className="panel-title">手谈</span>
               <span className="panel-sub">同一局域网 · 不计入进度</span>
             </div>
-            <div className="field">
+            <div className="field lan-field">
               <label>开一间（你执黑）</label>
-              <div className="controls">
-                <select value={size} onChange={(e) => setSize(Number(e.target.value) as 9 | 13 | 19)}>
-                  <option value={9}>9 路</option>
-                  <option value={13}>13 路</option>
-                  <option value={19}>19 路</option>
-                </select>
-                <button className="btn btn-primary" onClick={() => void create()} disabled={busy}>
-                  创建房间
-                </button>
+              <div className="lan-create">
+                <div className="controls">
+                  <select value={size} onChange={(e) => setSize(Number(e.target.value) as 9 | 13 | 19)}>
+                    <option value={9}>9 路</option>
+                    <option value={13}>13 路</option>
+                    <option value={19}>19 路</option>
+                  </select>
+                </div>
+                <div className="controls">
+                  <select value={timePreset} onChange={(e) => setTimePreset(e.target.value)} title="时间制（房主决定）">
+                    {TIME_PRESETS.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="controls">
+                  <button className="btn btn-primary" onClick={() => void create()} disabled={busy}>
+                    创建房间
+                  </button>
+                </div>
+                <div className="hint">时间制由房主定；读秒每手重置，期数用完判负。</div>
               </div>
             </div>
             <div className="field">
@@ -336,7 +433,13 @@ export function LanView({ bootstrap, onBack }: LanViewProps) {
             <section className="panel">
               <div className="panel-head">
                 <span className="panel-title">房间 {room.code}</span>
-                <span className="panel-sub">{room.size} 路 · 贴 {room.komi} 目</span>
+                <span className="panel-sub">
+                  {room.size} 路 · 贴 {room.komi} 目
+                </span>
+              </div>
+              <div className="stat-row">
+                <span className="stat-key">时间制</span>
+                <span className="stat-val">{controlName(clock?.control ?? null)}</span>
               </div>
               <div className="stat-row">
                 <span className="stat-key">你</span>

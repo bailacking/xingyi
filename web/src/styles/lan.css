@@ -1,0 +1,67 @@
+/* 手谈（联机）专用样式。公共样式在 styles.css，这里只放房间独有的东西。 */
+
+/* 观战 / 断线提示条：贴在棋盘上方，角色色彩区分「只是看」和「出问题了」 */
+.lan-banner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--surface-alt);
+  color: var(--text-dim);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+}
+
+.lan-banner-warn {
+  border-left-color: var(--danger);
+  color: var(--danger);
+}
+
+/* 棋钟右侧的状态字（走表中 / 等对手入座 / 已终局） */
+.clock-meta {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-dim);
+  letter-spacing: 0.04em;
+}
+
+/* 建房那一块：字段标题独占一行，控件各占整行（面板只有 ~230px，并排会被截成「10 分…」）
+   注意：lan.css 在 styles.css 之前加载（App → LanView 的 import 链更早），必须加 .field 提权 */
+.field.lan-field {
+  grid-template-columns: 1fr;
+  gap: 6px;
+  align-items: stretch;
+}
+
+.lan-create {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.lan-create .controls select {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+
+/* 窄屏：两台钟允许换行，别把棋盘挤没了 */
+@media (max-width: 640px) {
+  .lan-banner {
+    font-size: 11px;
+    padding: 5px 8px;
+  }
+
+  .clock-bar {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .clock-meta {
+    margin-left: 0;
+    width: 100%;
+  }
+}

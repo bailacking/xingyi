@@ -43,13 +43,13 @@
 |---|---|---|---|
 | **自在**（free） | 可玩 | 9/13/19 路对局；AI 或离线对手；悔棋、停一手、认输、终局数子；SGF 导入/导出；分析面板（候选点 + 胜率 + 目差）；形势图（F）；候选变化幽灵子；点一颗子整块标死 | 自由摆子编辑（AB/AW/AE 拖拽摆放）；目差曲线；沿分支逐手跳转；"假设对手水平"滑杆 |
 | **修习**（ranked） | 可玩（等级表已实测） | 3 盘定级；暂定级；升降级（阈值按局部步长）；**跳档考核（升 1/2 级）**；防刷；`progress.json` + `.bak`；评级沙盘；**进度导出 JSON** | 逐级独立校准误差仍 ±150~480 |
-| **手谈**（lan） | 初版可用 | 房间码 6 位、创建/加入、观战、**状态走 WS 推送（聊天同帧）**、悔棋需同意、认输、3 分钟超时、UDP 局域网自动发现、**扫码入座二维码**、**重开页面自动回座**、WS 断开时 6s 兜底轮询 | 断线重连提示文案、观战者视角下的计时（联机暂无计时） |
+| **手谈**（lan） | 初版可用 | 房间码 6 位、创建/加入、观战、**状态走 WS 推送（聊天同帧）**、悔棋需同意、认输、**房间棋钟（主时间 + 读秒，可选 4 档时间制）、超时判负**、UDP 局域网自动发现、**扫码入座二维码**、**重开页面自动回座**、WS 断开时 6s 兜底轮询 + **断线提示条**、**观战者看到自己的角色与两台钟** | 建好后不能改时间制；联机无让子 |
 | 教学 / 题库 | 初版可用 | 2 课跟做（提子/角上的气）、**100 道自建提子题**（`scripts/gen-tsumego.mjs` 生成并用规则引擎逐题验算）、10 题测级（从题库均匀抽）、题库数据有独立测试守着 | 定式练习、更高难度题库（手筋/死活）、AI 辅助判题 |
 | 主题 | 两套内置可用 | `walnut`（胡桃木，默认）+ `youth`（星弈·青）；即时切换 + 5 秒撤销 | 主题预览卡片；zip 导入导出；`style.css` 加载白名单 |
 | Electron | 未开始 | — | 换壳、窗口、图标、启动画面 |
 | 引擎 | 已接入真机 | GTP 串行客户端、分析流、三后端探测、五步自检、进程守护、离线对手 | 摆棋用的 `playoutDoublingAdvantage` 滑杆 |
 
-**测试规模**：71 项 / 5 个文件（rules 17 · server API 13 · engine 14 · rating · sgf）。
+**测试规模**：125 项 / 9 个文件（rules 22 · server API 23 · room 棋钟 9 · clock 10 · engine 14 · rating 25 · sgf 5 · joseki 14 · 题库数据 3）。
 
 **本机引擎现状**（`data/config.json`，不入库）：KataGo 1.18.2 CUDA + 主模型 + human 模型，显存占用 985 MB / 4096 MB。换机器时这份配置不存在 → 引擎状态为 `unconfigured`，自在模式自动退化为离线对手，修习模式返回 409。
 
@@ -123,6 +123,7 @@ web/src/
   panels/MoveList.tsx       手数列表
   Settings.tsx              引擎三步向导 + 界面/音效/沙盘
   theme/skins.ts            两套 token + CSS 变量生成
+  styles/lan.css            手谈专用样式（观战/断线提示条、棋钟状态字）
   sound.ts                  WebAudio 合成音（3 音色 × 落子/提子/磬）
   api.ts / types.ts         请求封装 / 类型转发
 scripts/calibrate.mjs       相邻级互下 → 拟合成等级表
@@ -357,6 +358,10 @@ node scripts/fit-ranks.mjs data/calibration/<stamp>.jsonl    # 保序回归 + �
 ⚠️ `Clock.switchTo(同一颜色)` **不能重置读秒**——服务每秒推一次快照都会调它，重置了就永远读不完。
 `GameService.emitGame()` 是对局快照的**唯一出口**，别绕过它直接 `emit('game', …)`。
 
+**房间（手谈）复用同一套**：`Room.clock` 与 `Match.clock` 语义一致。建房间传 `timeControl`；**两人到齐才 `start`**（房主等人不扣时间）；
+落子/停一手/悔棋同意后 `switchTo(game.toPlay)`；超时就地判负 → `resultReason='timeout'`、`result='黑超时，白胜'`、状态 `finished`。
+房间另有**独立的 3 分钟挂机判负**（只看 `lastMoveAt`），与棋钟互不影响——别把两者合成一个计时器。
+
 **让子**：`handicapStones(size, n)` 走常规星位（2 子对角、7/9 子带天元、8 子四角四边中），
 `handicapKomi()` 让 2 子以上贴 0.5。让子局把黑子写进 `setup.black`，**白先走**——
 交给规则层判断，`Match` 里不要再写 `toPlay: init.toPlay ?? 'B'`。
@@ -394,9 +399,9 @@ node scripts/fit-ranks.mjs data/calibration/<stamp>.jsonl    # 保序回归 + �
 | GET | `/api/progress/export` | 导出 JSON（存档 + 等级表） |
 | POST | `/api/tsumego/:id/try` | 判题：提子数达到 `capture` 即正解 |
 | GET | `/api/tsumego` / `/api/tsumego/:id` | 题库列表 / 单题（不含答案） |
-| POST | `/api/room` | 开房间（6 位码，创建者执黑） |
+| POST | `/api/room` | 开房间（6 位码，创建者执黑）；可选 `timeControl`（`null` = 不限时，不传 = 10 分 + 3×30 秒） |
 | POST | `/api/room/:code/join` | 加入（第三人是观众） |
-| GET | `/api/room/:code` | 房间快照 + 聊天 |
+| GET | `/api/room/:code` | 房间快照（含 `clock`、`resultReason`）+ 聊天 |
 | POST | `/api/room/:code/action` | move/pass/resign/undo/undo-yes/undo-no/leave |
 | POST | `/api/room/:code/chat` | 聊天（不入库） |
 | GET | `/api/room/discover` | UDP 监听 1.2s，返回同网段房间 |
@@ -484,7 +489,7 @@ node scripts/fit-ranks.mjs data/calibration/<stamp>.jsonl    # 保序回归 + �
 | **P2** | 对 AI 下棋 + 复盘 | 完成（逐手好/一般/失误 + 曲线 + 跳转 + 输棋自动复盘 + 着法名 + 计时/让子） |
 | **P3** | 修习：评级全流程 | 完成（等级表实测、跳档考核、导出） |
 | **P4** | 教学 + 题库 | 2 课 + **100 题** + 测级；缺定式练习（W1 卡） |
-| **P5** | 手谈：局域网联机 | 房间码/加入/观战/聊天/悔棋同意/超时/自动发现/二维码/WS 推送/自动回座；缺房间计时（W2 卡） |
+| **P5** | 手谈：局域网联机 | 房间码/加入/观战/聊天/悔棋同意/超时/自动发现/二维码/WS 推送/自动回座/**房间棋钟 + 超时判负 + 观战提示**；缺改时间制与让子 |
 | **P6** | 主题：预览 + zip 导入导出 | 两套主题可用，其余未做 |
 | **P7** | Electron 换壳 | 未开始 |
 | **P8** | 开源发布：截图/GIF、CI、THIRD-PARTY 核验 | CI 与文档已有，其余待补 |
@@ -526,6 +531,10 @@ node scripts/fit-ranks.mjs data/calibration/<stamp>.jsonl    # 保序回归 + �
 17. **让子局别在 Match 里写默认先后手**：`toPlay: init.toPlay ?? 'B'` 让白先失效，正确做法是交给规则层判断。
 18. **计时的 `switchTo` 必须幂等**：每秒推快照会重复调用，非幂等 = 读秒无限续期。
 19. **房间 WS 事件要带聊天同帧**，否则前端每条聊天还得单发一次请求，推送只推了一半。
+20. **房间棋钟必须经 `Room.snapshot()` 出口推进**：`GameService` 的秒级 ticker 只对「有钟且 playing」的房间每秒 `emit('room', r.snapshot())`，
+    超时判负写在 `snapshot()` 里的 `syncClock()`。绕过它直接 `emit` 会让两边的钟不走、也不判负。
+21. **房间的「3 分钟没动」和棋钟是两套**：前者看 `lastMoveAt`（防挂机），后者走 `Clock`（真实读秒）。混在一起会出现「包干 3 分钟」与「挂机 3 分钟」撞车。
+22. **秒数别按分钟取整显示**：`Math.round(3/60)` 会显示成「0 分包干」。不足 60 秒直接报秒。
 
 ## 16. 常见改动配方
 

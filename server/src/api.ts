@@ -112,9 +112,22 @@ export function registerRoutes(app: FastifyInstance, service: GameService): void
   // ---------------- 手谈（联机房间） ----------------
 
   app.post('/api/room', async (req) => {
-    const b = body<{ size?: 9 | 13 | 19; komi?: number; name?: string; clientId?: string }>(req);
+    const b = body<{
+      size?: 9 | 13 | 19;
+      komi?: number;
+      name?: string;
+      clientId?: string;
+      /** null = 不限时；不传 = 服务端默认（10 分 + 3×30 秒） */
+      timeControl?: { mainSec: number; byoYomiSec: number; periods: number } | null;
+    }>(req);
     if (!b.clientId) throw new ServiceError(400, '缺少客户端标识');
-    return service.createRoom({ size: b.size, komi: b.komi, name: b.name, clientId: b.clientId });
+    return service.createRoom({
+      size: b.size,
+      komi: b.komi,
+      name: b.name,
+      clientId: b.clientId,
+      timeControl: b.timeControl,
+    });
   });
 
   app.get('/api/net', async () => {

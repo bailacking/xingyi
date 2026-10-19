@@ -131,8 +131,14 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ vertex }),
     }),
-  roomCreate: (p: { size?: 9 | 13 | 19; komi?: number; name?: string; clientId: string }) =>
-    req<{ room: RoomView; color: Color | 'spectator' }>('/api/room', { method: 'POST', body: JSON.stringify(p) }),
+  roomCreate: (p: {
+    size?: 9 | 13 | 19;
+    komi?: number;
+    name?: string;
+    clientId: string;
+    /** null = 不限时；不传 = 服务端默认 */
+    timeControl?: { mainSec: number; byoYomiSec: number; periods: number } | null;
+  }) => req<{ room: RoomView; color: Color | 'spectator' }>('/api/room', { method: 'POST', body: JSON.stringify(p) }),
   roomJoin: (code: string, p: { name?: string; clientId: string }) =>
     req<{ room: RoomView; color: Color | 'spectator' }>(`/api/room/${code}/join`, {
       method: 'POST',
