@@ -30,6 +30,20 @@ const PNG = Buffer.from(
   'base64',
 );
 
+/** WCAG 相对亮度 / 对比度（只给内置主题的底线断言用） */
+function channel(v: number): number {
+  return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+}
+function luminance(hex: string): number {
+  const n = hex.replace('#', '');
+  const [r, g, b] = [0, 2, 4].map((i) => channel(parseInt(n.slice(i, i + 2), 16) / 255));
+  return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
+}
+function contrast(a: string, b: string): number {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (hi! + 0.05) / (lo! + 0.05);
+}
+
 function packZip(theme: unknown, assets: { name: string; data: Buffer }[] = []): Buffer {
   return writeZip([
     { name: 'theme.json', data: Buffer.from(JSON.stringify(theme), 'utf8') },
@@ -69,6 +83,10 @@ function validTheme(id = 'ink-wash'): Record<string, unknown> {
         boardLine: '#333333',
         blackStone: '#101010',
         whiteStone: '#FCFCFA',
+        blackStoneHighlight: '#6B655C',
+        blackStoneEdge: '#050404',
+        whiteStoneHighlight: '#FFFFFF',
+        whiteStoneEdge: '#DCD6C8',
         seal: '#A03A2A',
         sealText: '#FFFFFF',
         danger: '#B4432F',
@@ -96,10 +114,11 @@ afterAll(async () => {
 });
 
 describe('内置主题', () => {
+  const builtinIds = ['suxue', 'xuanmo', 'qingzhu', 'yinxing'];
+
   it('data/themes 里的内置 JSON 与前端 skins.ts 完全一致（防两份漂移）', () => {
     const store = new ThemePackStore(path.join(REPO_ROOT, 'data', 'themes'));
     const list = store.list();
-    const builtinIds = ['walnut', 'youth', 'bamboo'];
     expect(list.map((t) => t.id).filter((id) => builtinIds.includes(id)).sort()).toEqual([...builtinIds].sort());
 
     for (const id of builtinIds) {
@@ -111,13 +130,30 @@ describe('内置主题', () => {
     }
   });
 
-  it('第三套主题「竹青」是冷色低饱和，且与另两套区分得开', () => {
-    const skin = SKINS.find((s) => s.id === 'bamboo')!;
-    expect(skin.builtin).toBe(true);
-    expect(skin.name).toBe('竹青');
-    // 三个内置主题的 bg 必须互不相同
+  it('四套内置主题齐全，浅深各有一个默认，底色互不相同', () => {
+    expect(SKINS.filter((s) => s.builtin).map((s) => s.id)).toEqual(builtinIds);
+    expect(SKINS[0]!.id).toBe('suxue'); // 默认浅色
+    const xuanmo = SKINS.find((s) => s.id === 'xuanmo')!;
+    expect(xuanmo.name).toBe('玄墨');
+    // 玄墨是深色：底色亮度必须明显低于素雪
+    expect(luminance(xuanmo.tokens.color.bg)).toBeLessThan(0.1);
+    expect(luminance(SKINS[0]!.tokens.color.bg)).toBeGreaterThan(0.8);
+
     const bgs = SKINS.filter((s) => s.builtin).map((s) => s.tokens.color.bg);
     expect(new Set(bgs).size).toBe(bgs.length);
+  });
+
+  it('四套内置主题都过对比度底线（正文 / 次文字 / 强调 / 印章 / 棋盘线 / 黑子高光）', () => {
+    for (const s of SKINS.filter((x) => x.builtin)) {
+      const c = s.tokens.color;
+      expect(contrast(c.text, c.bg), `${s.name} 正文`).toBeGreaterThanOrEqual(7);
+      expect(contrast(c.textDim, c.bg), `${s.name} 次文字`).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(c.accent, c.surface), `${s.name} 强调色`).toBeGreaterThanOrEqual(3);
+      expect(contrast(c.sealText, c.seal), `${s.name} 印章`).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(c.boardLine, c.board), `${s.name} 棋盘线`).toBeGreaterThanOrEqual(3);
+      // 深色主题全靠这条把黑子从深色盘里拎出来，掉了就等于看不见棋
+      expect(contrast(c.blackStoneHighlight, c.board), `${s.name} 黑子高光`).toBeGreaterThanOrEqual(3);
+    }
   });
 });
 
@@ -158,9 +194,9 @@ describe('导入：合法包', () => {
     const { theme, warnings } = res.json();
     expect(theme.tokens.color.bg).toBe('#111111');
     // 没写的字段取默认值（胡桃木）
-    expect(theme.tokens.color.board).toBe('#E5C08A');
-    expect(theme.tokens.radius.md).toBe(4);
-    expect(theme.tokens.motion.speed).toBe(200);
+    expect(theme.tokens.color.board).toBe('#E3DCCB');
+    expect(theme.tokens.radius.md).toBe(5);
+    expect(theme.tokens.motion.speed).toBe(160);
     expect(theme.variants.button).toBe('glow');
     expect(theme.variants.result).toBe('plain');
     // 多余字段只提示
@@ -189,6 +225,21 @@ describe('导入：合法包', () => {
     const res = await upload(zip);
     expect(res.statusCode).toBe(200);
     expect(res.json().theme.id).toBe('bom-pack');
+  });
+
+  it('上一版的主题包（没有棋子四个停点）导入后自动补默认值', async () => {
+    const legacy = validTheme('legacy-pack');
+    const color = (legacy.tokens as { color: Record<string, string> }).color;
+    delete color.blackStoneHighlight;
+    delete color.blackStoneEdge;
+    delete color.whiteStoneHighlight;
+    delete color.whiteStoneEdge;
+
+    const res = await upload(packZip(legacy));
+    expect(res.statusCode).toBe(200);
+    const tokens = res.json().theme.tokens as ThemeTokens;
+    expect(tokens.color.blackStoneHighlight).toBe('#6A6259');
+    expect(tokens.color.whiteStoneEdge).toBe('#D8D2C6');
   });
 
   it('主题里的图片能通过资产路由取回（字节一致）', async () => {
@@ -269,7 +320,7 @@ describe('导入：恶意包', () => {
   });
 
   it('冒用内置主题 id 被拒', async () => {
-    const res = await upload(packZip(validTheme('walnut')));
+    const res = await upload(packZip(validTheme('suxue')));
     expect(res.statusCode).toBe(400);
     expect(res.json().error).toContain('内置');
   });
@@ -330,11 +381,11 @@ describe('导出 → 重新导入：还原一致', () => {
 
   it('内置主题也能导出（导出的是归一化后的 JSON）', async () => {
     const store = new ThemePackStore(path.join(REPO_ROOT, 'data', 'themes'));
-    const zip = store.exportZip('bamboo').buffer;
+    const zip = store.exportZip('yinxing').buffer;
     const entries = readZip(zip);
     expect(entries.map((e) => e.name)).toEqual(['theme.json']);
     const json = JSON.parse(entries[0]!.data.toString('utf8')) as { builtin: boolean; id: string };
-    expect(json.id).toBe('bamboo');
+    expect(json.id).toBe('yinxing');
     expect(json.builtin).toBe(true);
   });
 

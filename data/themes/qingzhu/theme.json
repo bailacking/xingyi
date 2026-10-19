@@ -1,0 +1,56 @@
+{
+  "id": "qingzhu",
+  "name": "青竹",
+  "author": "xingyi",
+  "version": "1.0.0",
+  "description": "竹青纸底、竹叶绿、竹黄盘面。绿而不甜，中圆角加一层轻投影。",
+  "builtin": true,
+  "tokens": {
+    "color": {
+      "bg": "#EDF3E6",
+      "surface": "#F8FBF2",
+      "surfaceAlt": "#E1EAD9",
+      "primary": "#38543E",
+      "accent": "#5C8250",
+      "text": "#1B2A1E",
+      "textDim": "#566B58",
+      "line": "#CBD9C3",
+      "board": "#E2D6B0",
+      "boardEdge": "#C1B383",
+      "boardLine": "#38472F",
+      "blackStone": "#12180F",
+      "whiteStone": "#FAFCF4",
+      "blackStoneHighlight": "#6C6A5E",
+      "blackStoneEdge": "#0A0B08",
+      "whiteStoneHighlight": "#FFFFFF",
+      "whiteStoneEdge": "#D8D4C4",
+      "seal": "#A6472F",
+      "sealText": "#FFF7F2",
+      "danger": "#A94E38",
+      "ok": "#4B7D55"
+    },
+    "radius": {
+      "sm": 6,
+      "md": 10,
+      "lg": 14
+    },
+    "shadow": 1,
+    "density": "comfortable",
+    "motion": {
+      "speed": 220,
+      "bounce": false
+    },
+    "font": {
+      "title": "\"Source Han Serif SC\", \"Noto Serif SC\", \"Songti SC\", \"STSong\", SimSun, serif",
+      "body": "\"Source Han Sans SC\", \"Noto Sans SC\", \"PingFang SC\", \"Microsoft YaHei\", system-ui, sans-serif"
+    },
+    "decor": [],
+    "playerMark": "seal"
+  },
+  "variants": {
+    "button": "soft",
+    "panel": "solid",
+    "playerMark": "seal",
+    "result": "card"
+  }
+}

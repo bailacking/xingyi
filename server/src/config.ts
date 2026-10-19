@@ -46,7 +46,8 @@ export const DEFAULT_CONFIG: AppConfig = {
     extraArgs: [],
   },
   ui: {
-    themeId: 'walnut',
+    /** 默认主题：素雪（冷白浅色）。深色「玄墨」由用户自己切，不跟随系统 */
+    themeId: 'suxue',
     sound: true,
     soundPack: 'jade',
     soundVolume: 0.75,

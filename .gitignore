@@ -18,12 +18,13 @@ data/models/
 data/games/
 data/calibration/
 data/config.json
-# 主题包：内置三套入库，用户导入的不入库（导入会写 data/themes/<id>/）
+# 主题包：内置四套入库，用户导入的不入库（导入会写 data/themes/<id>/）
 data/themes/*
 !data/themes/.gitkeep
-!data/themes/walnut/
-!data/themes/youth/
-!data/themes/bamboo/
+!data/themes/suxue/
+!data/themes/xuanmo/
+!data/themes/qingzhu/
+!data/themes/yinxing/
 backups/
 logs/
 progress.json

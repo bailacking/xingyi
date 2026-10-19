@@ -26,6 +26,11 @@ function ThemePreview({ skin }: { skin: Skin }) {
     ['--pv-edge']: t.color.boardEdge,
     ['--pv-black']: t.color.blackStone,
     ['--pv-white']: t.color.whiteStone,
+    // 预览里的棋子也用真棋盘的四个停点，否则深色主题的黑子在预览里等于隐形
+    ['--pv-bhi']: t.color.blackStoneHighlight,
+    ['--pv-bedge']: t.color.blackStoneEdge,
+    ['--pv-whi']: t.color.whiteStoneHighlight,
+    ['--pv-wedge']: t.color.whiteStoneEdge,
     ['--pv-radius']: `${t.radius.md}px`,
   } as CSSProperties;
   const cells = [

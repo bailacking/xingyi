@@ -376,6 +376,15 @@ export interface ThemeTokens {
     boardLine: string;
     blackStone: string;
     whiteStone: string;
+    /**
+     * 棋子径向渐变的 0% 停点（高光）与 100% 停点（暗边）。
+     * 深色主题的黑子本体与深色盘面只差 1.6 对比度，全靠高光把棋子「拎」出来——
+     * 所以这四色必须跟着主题走，不能硬编码在 Board.tsx 里。
+     */
+    blackStoneHighlight: string;
+    blackStoneEdge: string;
+    whiteStoneHighlight: string;
+    whiteStoneEdge: string;
     seal: string;
     sealText: string;
     danger: string;

@@ -87,14 +87,14 @@ export function Board(props: BoardProps) {
           <stop offset="100%" stopColor="var(--board-edge)" />
         </linearGradient>
         <radialGradient id="stoneBlack" cx="36%" cy="30%" r="72%">
-          <stop offset="0%" stopColor="#6a6259" />
+          <stop offset="0%" stopColor="var(--stone-black-highlight)" />
           <stop offset="45%" stopColor="var(--stone-black)" />
-          <stop offset="100%" stopColor="#050403" />
+          <stop offset="100%" stopColor="var(--stone-black-edge)" />
         </radialGradient>
         <radialGradient id="stoneWhite" cx="36%" cy="28%" r="74%">
-          <stop offset="0%" stopColor="#ffffff" />
+          <stop offset="0%" stopColor="var(--stone-white-highlight)" />
           <stop offset="62%" stopColor="var(--stone-white)" />
-          <stop offset="100%" stopColor="#d8d2c6" />
+          <stop offset="100%" stopColor="var(--stone-white-edge)" />
         </radialGradient>
         <filter id="stoneShadow" x="-40%" y="-40%" width="180%" height="180%">
           <feDropShadow dx="0" dy="1.6" stdDeviation="1.8" floodColor="#000" floodOpacity="0.32" />

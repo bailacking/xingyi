@@ -6,7 +6,7 @@ import { LanView } from './modes/LanView';
 import { LearnView } from './modes/LearnView';
 import { Settings } from './Settings';
 import { configureSound } from './sound';
-import { SKINS, cssVars, skinById } from './theme/skins';
+import { DEFAULT_SKIN_ID, SKINS, cssVars, skinById } from './theme/skins';
 import type { EngineStatus, Mode, ProgressView } from './types';
 
 type View = 'menu' | 'free' | 'ranked' | 'lan' | 'learn' | 'settings';
@@ -14,16 +14,23 @@ type View = 'menu' | 'free' | 'ranked' | 'lan' | 'learn' | 'settings';
 const THEME_KEY = 'xingyi.theme';
 const VIEWS: View[] = ['menu', 'free', 'ranked', 'lan', 'learn', 'settings'];
 
-/** 支持 ?view=free&theme=youth 直接进某个界面（截图与调试用，不影响正常使用） */
+/** 支持 ?view=free&theme=xuanmo 直接进某个界面（截图与调试用，不影响正常使用） */
 function initialView(): View {
   const v = new URLSearchParams(location.search).get('view');
   return v && VIEWS.includes(v as View) ? (v as View) : 'menu';
 }
 
+/**
+ * 启动时的主题：?theme= > localStorage > 默认（素雪）。
+ * 旧版本存过 walnut / youth / bamboo，这些 id 已经不存在了 → 清掉，回落到默认浅色。
+ */
 function initialTheme(): string {
   const q = new URLSearchParams(location.search).get('theme');
   if (q && SKINS.some((s) => s.id === q)) return q;
-  return localStorage.getItem(THEME_KEY) ?? 'walnut';
+  const stored = localStorage.getItem(THEME_KEY);
+  if (stored && SKINS.some((s) => s.id === stored)) return stored;
+  if (stored) localStorage.removeItem(THEME_KEY);
+  return DEFAULT_SKIN_ID;
 }
 
 export function App() {
@@ -51,7 +58,10 @@ export function App() {
       setFatal(null);
       configureSound({ enabled: b.config.ui.sound, pack: b.config.ui.soundPack, volume: b.config.ui.soundVolume });
       const fromQuery = new URLSearchParams(location.search).get('theme');
-      if (!fromQuery && !localStorage.getItem(THEME_KEY) && b.config.ui.themeId) setThemeId(b.config.ui.themeId);
+      // config 里可能是旧主题 id（walnut / youth / bamboo），认不出就留在默认主题上
+      if (!fromQuery && !localStorage.getItem(THEME_KEY) && SKINS.some((s) => s.id === b.config.ui.themeId)) {
+        setThemeId(b.config.ui.themeId);
+      }
     } catch {
       setFatal('连不上本地服务。请确认 `npm run dev` 的 server 那一半在跑（默认 7388 端口）。');
     }

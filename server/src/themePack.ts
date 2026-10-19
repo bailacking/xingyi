@@ -38,7 +38,7 @@ const MAX_TOTAL_BYTES = 20 * 1024 * 1024;
 /** theme.json 本身的上限 */
 const MAX_THEME_JSON_BYTES = 256 * 1024;
 
-export const BUILTIN_THEME_IDS = ['walnut', 'youth', 'bamboo'] as const;
+export const BUILTIN_THEME_IDS = ['suxue', 'xuanmo', 'qingzhu', 'yinxing'] as const;
 
 const IMAGE_EXT = new Set(['.png', '.jpg', '.jpeg', '.webp']);
 const SCRIPT_EXT = new Set(['.js', '.mjs', '.cjs', '.jsx', '.ts', '.tsx']);
@@ -61,6 +61,10 @@ const COLOR_KEYS = [
   'boardLine',
   'blackStone',
   'whiteStone',
+  'blackStoneHighlight',
+  'blackStoneEdge',
+  'whiteStoneHighlight',
+  'whiteStoneEdge',
   'seal',
   'sealText',
   'danger',
@@ -69,31 +73,35 @@ const COLOR_KEYS = [
 
 const RADIUS_KEYS = ['sm', 'md', 'lg'] as const;
 
-/** 缺字段时的兜底（= 胡桃木）。不读磁盘，保证空目录也能导入。 */
+/** 缺字段时的兜底（= 默认主题「素雪」）。不读磁盘，保证空目录也能导入。 */
 export const DEFAULT_THEME_TOKENS: ThemeTokens = {
   color: {
-    bg: '#F7F4EE',
-    surface: '#FFFDF9',
-    surfaceAlt: '#F1EBE0',
-    primary: '#3E2C20',
-    accent: '#A98C5F',
-    text: '#2A2622',
-    textDim: '#6B625A',
-    line: '#DCD2C2',
-    board: '#E5C08A',
-    boardEdge: '#C79E67',
-    boardLine: '#4A3A2A',
-    blackStone: '#15110E',
-    whiteStone: '#FCFAF5',
-    seal: '#9C3A2E',
-    sealText: '#FBF7F2',
-    danger: '#B4432F',
-    ok: '#4E7A52',
+    bg: '#F5F7F8',
+    surface: '#FCFDFD',
+    surfaceAlt: '#E9EDF0',
+    primary: '#2C3740',
+    accent: '#5F7686',
+    text: '#191E23',
+    textDim: '#5C6873',
+    line: '#D9E0E5',
+    board: '#E3DCCB',
+    boardEdge: '#C6BEA9',
+    boardLine: '#44403A',
+    blackStone: '#15181B',
+    whiteStone: '#FCFDFD',
+    blackStoneHighlight: '#6A6259',
+    blackStoneEdge: '#050403',
+    whiteStoneHighlight: '#FFFFFF',
+    whiteStoneEdge: '#D8D2C6',
+    seal: '#AF3E31',
+    sealText: '#FFF7F4',
+    danger: '#BE4A3E',
+    ok: '#48775C',
   },
-  radius: { sm: 2, md: 4, lg: 6 },
+  radius: { sm: 3, md: 5, lg: 9 },
   shadow: 0,
   density: 'comfortable',
-  motion: { speed: 200, bounce: false },
+  motion: { speed: 160, bounce: false },
   font: {
     title: '"Source Han Serif SC", "Noto Serif SC", "Songti SC", "STSong", SimSun, serif',
     body: '"Source Han Sans SC", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif',

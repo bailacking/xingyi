@@ -1,0 +1,56 @@
+{
+  "id": "suxue",
+  "name": "素雪",
+  "author": "xingyi",
+  "version": "1.0.0",
+  "description": "冷白纸面、墨灰文字、一点朱印。近乎无色相，先把内容和棋盘让出来。",
+  "builtin": true,
+  "tokens": {
+    "color": {
+      "bg": "#F5F7F8",
+      "surface": "#FCFDFD",
+      "surfaceAlt": "#E9EDF0",
+      "primary": "#2C3740",
+      "accent": "#5F7686",
+      "text": "#191E23",
+      "textDim": "#5C6873",
+      "line": "#D9E0E5",
+      "board": "#E3DCCB",
+      "boardEdge": "#C6BEA9",
+      "boardLine": "#44403A",
+      "blackStone": "#15181B",
+      "whiteStone": "#FCFDFD",
+      "blackStoneHighlight": "#6A6259",
+      "blackStoneEdge": "#050403",
+      "whiteStoneHighlight": "#FFFFFF",
+      "whiteStoneEdge": "#D8D2C6",
+      "seal": "#AF3E31",
+      "sealText": "#FFF7F4",
+      "danger": "#BE4A3E",
+      "ok": "#48775C"
+    },
+    "radius": {
+      "sm": 3,
+      "md": 5,
+      "lg": 9
+    },
+    "shadow": 0,
+    "density": "comfortable",
+    "motion": {
+      "speed": 160,
+      "bounce": false
+    },
+    "font": {
+      "title": "\"Source Han Serif SC\", \"Noto Serif SC\", \"Songti SC\", \"STSong\", SimSun, serif",
+      "body": "\"Source Han Sans SC\", \"Noto Sans SC\", \"PingFang SC\", \"Microsoft YaHei\", system-ui, sans-serif"
+    },
+    "decor": [],
+    "playerMark": "seal"
+  },
+  "variants": {
+    "button": "flat",
+    "panel": "paper",
+    "playerMark": "seal",
+    "result": "plain"
+  }
+}

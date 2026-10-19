@@ -1,0 +1,56 @@
+{
+  "id": "xuanmo",
+  "name": "玄墨",
+  "author": "xingyi",
+  "version": "1.0.0",
+  "description": "炭灰底、月光银、朱砂印。夜里下棋用的一套；三层灰阶撑层级，棋子带高光。",
+  "builtin": true,
+  "tokens": {
+    "color": {
+      "bg": "#15171A",
+      "surface": "#1D2126",
+      "surfaceAlt": "#252B31",
+      "primary": "#5D6C78",
+      "accent": "#8FA6B8",
+      "text": "#EAEEF1",
+      "textDim": "#9AA5AE",
+      "line": "#2C3339",
+      "board": "#33383C",
+      "boardEdge": "#202427",
+      "boardLine": "#9DA8AE",
+      "blackStone": "#0B0D0F",
+      "whiteStone": "#EFF1F2",
+      "blackStoneHighlight": "#9A9C9E",
+      "blackStoneEdge": "#000000",
+      "whiteStoneHighlight": "#FFFFFF",
+      "whiteStoneEdge": "#C9CCCE",
+      "seal": "#C85B45",
+      "sealText": "#14100E",
+      "danger": "#DE7660",
+      "ok": "#74AE92"
+    },
+    "radius": {
+      "sm": 4,
+      "md": 6,
+      "lg": 10
+    },
+    "shadow": 2,
+    "density": "comfortable",
+    "motion": {
+      "speed": 240,
+      "bounce": false
+    },
+    "font": {
+      "title": "\"Source Han Serif SC\", \"Noto Serif SC\", \"Songti SC\", \"STSong\", SimSun, serif",
+      "body": "\"Source Han Sans SC\", \"Noto Sans SC\", \"PingFang SC\", \"Microsoft YaHei\", system-ui, sans-serif"
+    },
+    "decor": [],
+    "playerMark": "seal"
+  },
+  "variants": {
+    "button": "soft",
+    "panel": "solid",
+    "playerMark": "seal",
+    "result": "card"
+  }
+}

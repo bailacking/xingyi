@@ -773,11 +773,11 @@ select:focus {
 }
 
 .theme-preview .pv-cell.b {
-  background: var(--pv-black);
+  background: radial-gradient(circle at 34% 30%, var(--pv-bhi) 0 24%, var(--pv-black) 46%, var(--pv-bedge) 100%);
 }
 
 .theme-preview .pv-cell.w {
-  background: var(--pv-white);
+  background: radial-gradient(circle at 34% 28%, var(--pv-whi) 0 20%, var(--pv-white) 62%, var(--pv-wedge) 100%);
 }
 
 .theme-meta {
