@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Board } from '../board/Board';
-import { api, ApiError, type Bootstrap } from '../api';
-import { playStone } from '../sound';
+import { QrCode } from '../panels/QrCode';
+import { api, ApiError, useSocket, type Bootstrap } from '../api';
+import { playBell, playStone } from '../sound';
 import type { Color, RoomChat, RoomView } from '../types';
 
 interface LanViewProps {
@@ -10,6 +11,7 @@ interface LanViewProps {
 }
 
 const CLIENT_KEY = 'xingyi.clientId';
+const ROOM_KEY = 'xingyi.roomCode';
 
 function clientId(): string {
   let id = localStorage.getItem(CLIENT_KEY);
@@ -36,8 +38,13 @@ export function LanView({ bootstrap, onBack }: LanViewProps) {
   const [text, setText] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [reconnect, setReconnect] = useState(false);
   const [discovering, setDiscovering] = useState(false);
   const [found, setFound] = useState<{ code: string; size: number; host: string; port: number; status?: string }[]>([]);
+  const joinUrl = useMemo(
+    () => (room ? `${location.origin}/?view=lan&room=${room.code}` : ''),
+    [room?.code],
+  );
   const roomRef = useRef<RoomView | null>(null);
   roomRef.current = room;
 
@@ -51,27 +58,71 @@ export function LanView({ bootstrap, onBack }: LanViewProps) {
     setError(err instanceof ApiError ? err.message : fallback);
   };
 
-  // 轮询房间状态（1.2s）：手谈只传落子与聊天，不值得上复杂协议
+  // 收发统一走这里：WS 推的、主动拉的，格式一样
+  const ingest = useCallback((next: { room: RoomView; chat?: RoomChat[] }, fromWs = false): void => {
+    const prev = roomRef.current;
+    if (next.room.code !== prev?.code) return;
+    const added = next.room.moves.length - (prev?.moves.length ?? 0);
+    if (prev && added > 0) playStone(false);
+    if (prev && next.room.status === 'finished' && prev.status !== 'finished') playBell();
+    roomRef.current = next.room;
+    setRoom(next.room);
+    if (next.chat) setChat(next.chat);
+    if (fromWs) setReconnect(false);
+  }, []);
+
+  // 主通道：WS 推送（落子/聊天/悔棋申请都是秒到）
+  const { connected } = useSocket((e) => {
+    if (e.type !== 'room') return;
+    const payload = e.data as { room?: RoomView; chat?: RoomChat[] };
+    if (!payload?.room) return;
+    ingest({ room: payload.room, chat: payload.chat }, true);
+  });
+
+  // 兜底：WS 断了才需要轮询，间隔放宽到 6 秒，别把「推送」做成「轮询换皮」
   useEffect(() => {
     const current = room?.code;
-    if (!current) return;
+    if (!current || connected) return;
+    let fails = 0;
     const timer = window.setInterval(() => {
       void api
         .roomGet(current)
         .then((res) => {
-          const prev = roomRef.current;
-          const added = res.room.moves.length - (prev?.moves.length ?? 0);
-          if (prev && added > 0) playStone(false);
-          setRoom(res.room);
-          setChat(res.chat);
+          fails = 0;
+          ingest(res);
         })
         .catch(() => {
-          setRoom(null);
-          setError('房间已经关了（房主离开或超时）');
+          // 一次失败可能只是服务重启，连续两次才判定房间没了
+          fails += 1;
+          if (fails >= 2) {
+            setRoom(null);
+            localStorage.removeItem(ROOM_KEY);
+            setError('房间已经关了（房主离开或超时）');
+          }
         });
-    }, 1200);
+    }, 6000);
     return () => window.clearInterval(timer);
-  }, [room?.code]);
+  }, [room?.code, connected, ingest]);
+
+  // 断线重连：房间码存在本地，重开页面自动回座（服务端认 clientId）
+  useEffect(() => {
+    const fromUrl = new URLSearchParams(location.search).get('room');
+    const saved = fromUrl ?? localStorage.getItem(ROOM_KEY);
+    if (!saved || roomRef.current) return;
+    setReconnect(true);
+    api
+      .roomJoin(saved, { clientId: me, name: bootstrap.progress.playerName })
+      .then((res) => {
+        setRoom(res.room);
+        setMyColor(res.color);
+        localStorage.setItem(ROOM_KEY, res.room.code);
+        void api.roomGet(saved).then((r) => setChat(r.chat)).catch(() => undefined);
+      })
+      .catch(() => localStorage.removeItem(ROOM_KEY))
+      .finally(() => setReconnect(false));
+    // 只在进入界面时试一次
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const create = async (): Promise<void> => {
     setBusy(true);
@@ -81,6 +132,7 @@ export function LanView({ bootstrap, onBack }: LanViewProps) {
       setMyColor(res.color);
       setChat([]);
       setError(null);
+      localStorage.setItem(ROOM_KEY, res.room.code);
     } catch (err) {
       fail(err, '开房间失败');
     } finally {
@@ -101,6 +153,7 @@ export function LanView({ bootstrap, onBack }: LanViewProps) {
       setMyColor(res.color);
       setChat([]);
       setError(null);
+      localStorage.setItem(ROOM_KEY, res.room.code);
     } catch (err) {
       fail(err, '加入房间失败');
     } finally {
@@ -148,6 +201,7 @@ export function LanView({ bootstrap, onBack }: LanViewProps) {
   };
 
   const leave = async (): Promise<void> => {
+    localStorage.removeItem(ROOM_KEY);
     const current = roomRef.current;
     if (current) await act('leave').catch(() => undefined);
     setRoom(null);
@@ -287,6 +341,14 @@ export function LanView({ bootstrap, onBack }: LanViewProps) {
                 <span className="stat-val">{room.spectators}</span>
               </div>
               {room.result && <div className="stat-row"><span className="stat-key">结果</span><span className="stat-val">{room.result}</span></div>}
+              <div className="qr-block">
+                <QrCode value={joinUrl} size={124} />
+                <div className="hint">
+                  手机扫这个码直接入座（同一 Wi-Fi）
+                  <br />
+                  <span style={{ wordBreak: 'break-all', opacity: 0.8 }}>{joinUrl}</span>
+                </div>
+              </div>
               <div className="controls" style={{ marginTop: 10 }}>
                 <button className="btn" onClick={() => void act('pass')} disabled={!myTurn}>
                   停一手

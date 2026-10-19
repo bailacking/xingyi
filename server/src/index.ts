@@ -47,7 +47,16 @@ async function main(): Promise<void> {
   service.on('game', (snapshot) => broadcast({ type: 'game', data: snapshot }));
   service.on('engine', (status) => broadcast({ type: 'engine', data: status }));
   service.on('progress', (progress) => broadcast({ type: 'progress', data: progress }));
-  service.on('room', (room) => broadcast({ type: 'room', data: room }));
+  service.on('room', (room) => {
+    // 房间快照 + 聊天一起推：客户端不用再单独拉一次
+    let chat: unknown[] = [];
+    try {
+      chat = service.getRoom(room.code).chat;
+    } catch {
+      chat = []; // 房间刚被删掉（最后一人离开）时取不到，推个空数组就行
+    }
+    broadcast({ type: 'room', data: { room, chat } });
+  });
   service.on('error', (err) => broadcast({ type: 'error', data: err }));
 
   await service.init();

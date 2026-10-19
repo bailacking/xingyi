@@ -171,7 +171,7 @@ export const api = {
 };
 
 export interface SocketEvent {
-  type: 'hello' | 'game' | 'engine' | 'progress' | 'error';
+  type: 'hello' | 'game' | 'engine' | 'progress' | 'room' | 'error';
   data: unknown;
 }
 
