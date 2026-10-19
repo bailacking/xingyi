@@ -13,6 +13,7 @@ import type {
   RoomView,
   Settlement,
 } from './types';
+import type { ThemeSummary } from './theme/packs';
 
 export class ApiError extends Error {
   constructor(
@@ -194,6 +195,32 @@ export const api = {
     }),
   rename: (name: string) =>
     req<ProgressView>('/api/progress/name', { method: 'POST', body: JSON.stringify({ name }) }),
+
+  // ---------------- 主题包（W4） ----------------
+  themeList: () => req<{ themes: ThemeSummary[] }>('/api/theme'),
+  /** 直接送 zip 原始字节（不走 JSON base64）；错误也按 { error } 解析 */
+  themeImport: async (file: Blob): Promise<{ theme: ThemeSummary; warnings: string[] }> => {
+    const res = await fetch('/api/theme/import', {
+      method: 'POST',
+      headers: { 'content-type': 'application/zip' },
+      body: file,
+    });
+    const text = await res.text();
+    let data: unknown = null;
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch {
+      data = text;
+    }
+    if (!res.ok) {
+      const raw = data as { error?: unknown } | null;
+      const message =
+        raw && typeof raw === 'object' && typeof raw.error === 'string' ? raw.error : `导入失败（${res.status}）`;
+      throw new ApiError(res.status, message);
+    }
+    return data as { theme: ThemeSummary; warnings: string[] };
+  },
+  themeExportUrl: (id: string) => `/api/theme/${encodeURIComponent(id)}/export`,
 };
 
 export interface SocketEvent {

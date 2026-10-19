@@ -5,6 +5,8 @@ import { toSgf } from './sgf.js';
 import { GameService, ServiceError } from './gameService.js';
 import { discoverRooms } from './discovery.js';
 import { checkJoseki, getJoseki, listJoseki } from './joseki.js';
+import { dataPaths, type DataPaths } from './paths.js';
+import { ThemePackError, ThemePackStore } from './themePack.js';
 
 function body<T>(req: FastifyRequest): T {
   return (req.body ?? {}) as T;
@@ -12,6 +14,22 @@ function body<T>(req: FastifyRequest): T {
 
 function snapshotOf(m: ReturnType<GameService['getMatch']>) {
   return { snapshot: m.snapshot(), settlement: m.settlement ?? null };
+}
+
+/**
+ * 主题包要落在「这个 service 用的数据目录」里。
+ * 测试是拿临时目录 new GameService(paths) 的，而 createApp 只拿到 service，
+ * 所以按运行时字段取（不要改成 `dataPaths()`：那会把测试里的导入写进仓库的 data/）。
+ */
+function servicePaths(service: GameService): DataPaths {
+  const p = (service as unknown as { paths?: DataPaths }).paths;
+  return p ?? dataPaths();
+}
+
+/** 主题包的校验错误一律是 400/404 + 中文原因，别变成 500 */
+function themeError(err: unknown): never {
+  if (err instanceof ThemePackError) throw new ServiceError(err.statusCode, err.message);
+  throw err;
 }
 
 export function registerRoutes(app: FastifyInstance, service: GameService): void {
@@ -107,6 +125,54 @@ export function registerRoutes(app: FastifyInstance, service: GameService): void
   app.post<{ Params: { id: string } }>('/api/joseki/:id/check', async (req) => {
     const b = body<{ step?: number; vertex?: number }>(req);
     return checkJoseki(req.params.id, Number(b.step), Number(b.vertex));
+  });
+
+  // ---------------- 主题包（W4） ----------------
+  //
+  // 只做「存 / 取 / 导出」：包内只有 theme.json 与 assets 图片，
+  // 服务端不解析任何 CSS/JS（校验层直接拒绝），所以这里没有注入面。
+
+  const themes = new ThemePackStore(servicePaths(service).themes);
+
+  // zip 按原始字节收，不走 JSON base64（省 1/3 体积，也避开 5MB 上限附近的边界）
+  app.addContentTypeParser('application/zip', { parseAs: 'buffer' }, (_req, body, done) => {
+    done(null, body);
+  });
+
+  app.get('/api/theme', async () => ({ themes: themes.list() }));
+
+  /** 导入主题包：body 是 zip 原始字节（content-type: application/zip） */
+  app.post('/api/theme/import', async (req) => {
+    const raw = req.body;
+    if (!Buffer.isBuffer(raw)) throw new ServiceError(400, '请以 application/zip 上传主题包（别用表单字段）');
+    try {
+      return themes.importZip(raw);
+    } catch (err) {
+      themeError(err);
+    }
+  });
+
+  app.get<{ Params: { id: string } }>('/api/theme/:id/export', async (req, reply: FastifyReply) => {
+    try {
+      const { buffer, filename } = themes.exportZip(req.params.id);
+      void reply.header('content-type', 'application/zip');
+      void reply.header('content-disposition', `attachment; filename="${filename}"`);
+      return buffer;
+    } catch (err) {
+      themeError(err);
+    }
+  });
+
+  /** 主题包里的图片（png/jpg/webp）；文件名走白名单，防目录穿越 */
+  app.get<{ Params: { id: string; file: string } }>('/api/theme/:id/asset/:file', async (req, reply: FastifyReply) => {
+    try {
+      const { data, mime } = themes.readAsset(req.params.id, req.params.file);
+      void reply.header('content-type', mime);
+      void reply.header('cache-control', 'public, max-age=300');
+      return data;
+    } catch (err) {
+      themeError(err);
+    }
   });
 
   // ---------------- 手谈（联机房间） ----------------

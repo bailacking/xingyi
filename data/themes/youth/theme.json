@@ -1,0 +1,40 @@
+{
+  "id": "youth",
+  "name": "星弈·青",
+  "author": "xingyi",
+  "version": "1.0.0",
+  "description": "深青底、金线、柔光。黑体、大圆角、弹性动效。夜里下棋用的那一套。",
+  "builtin": true,
+  "tokens": {
+    "color": {
+      "bg": "#0A1517",
+      "surface": "#12262A",
+      "surfaceAlt": "#173036",
+      "primary": "#2C6E74",
+      "accent": "#D8B87A",
+      "text": "#E6F1EF",
+      "textDim": "#8FA9A6",
+      "line": "#1E3A3E",
+      "board": "#1B3F42",
+      "boardEdge": "#0F2729",
+      "boardLine": "#8FB8B3",
+      "blackStone": "#08100F",
+      "whiteStone": "#F0F7F5",
+      "seal": "#C8A15A",
+      "sealText": "#0A1517",
+      "danger": "#E0715B",
+      "ok": "#6FD3B0"
+    },
+    "radius": { "sm": 12, "md": 16, "lg": 24 },
+    "shadow": 3,
+    "density": "compact",
+    "motion": { "speed": 320, "bounce": true },
+    "font": {
+      "title": "\"Source Han Sans SC\", \"Noto Sans SC\", \"PingFang SC\", \"Microsoft YaHei\", system-ui, sans-serif",
+      "body": "\"Source Han Sans SC\", \"Noto Sans SC\", \"PingFang SC\", \"Microsoft YaHei\", system-ui, sans-serif"
+    },
+    "decor": ["glow"],
+    "playerMark": "seal"
+  },
+  "variants": { "button": "glow", "panel": "glass", "playerMark": "seal", "result": "card" }
+}

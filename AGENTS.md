@@ -3,7 +3,7 @@
 > **读者**：接手这个仓库的 AI 编程助手（以及偶尔看它的人）。
 > **权威顺序**：本文件 > 代码 > `docs/` > `docs/archive/PLAN-v2.5.md`（历史设计稿，已弃用，只作考古）。
 > **维护义务**：改动涉及状态、参数、契约、坑位时，**同一个 commit 里更新本文件**。本文件过期比没有更糟。
-> **最后核对**：2026-10-17 23:55 · 71 项测试通过 · 引擎真机跑通并校准过一轮。
+> **最后核对**：2026-10-19 20:30 · 164 项测试通过 · 主题包导入导出（W4）已完成。
 
 ---
 
@@ -11,7 +11,7 @@
 
 1. 读 §2「当前状态」——确认你要做的事**是否已经做了**。设计稿里有的东西，代码里可能没有；反之也有偏差。
 2. 读 §6「不变量」与 §15「已踩过的坑」——这些是代价换来的，别重犯。
-3. 改完必须跑通：`npm test`（71 项）+ `npm run typecheck`。
+3. 改完必须跑通：`npm test`（164 项）+ `npm run typecheck`。
 4. 能跑 ≠ 对。涉及界面的改动，用 §16.4 的无头浏览器截图目检；涉及引擎的，用真 katago 跑一次（本机已装，见 §9.1）。
 
 ---
@@ -44,12 +44,12 @@
 | **自在**（free） | 可玩 | 9/13/19 路对局；AI 或离线对手；悔棋、停一手、认输、终局数子；SGF 导入/导出；分析面板（候选点 + 胜率 + 目差）；形势图（F）；候选变化幽灵子；点一颗子整块标死；**复盘（分块进度条 + 可随时中断 + 黑白方分色统计，19 路 200 手 ≈ 43 秒）** | 自由摆子编辑（AB/AW/AE 拖拽摆放）；目差曲线；沿分支逐手跳转；"假设对手水平"滑杆 |
 | **修习**（ranked） | 可玩（等级表已实测） | 3 盘定级；暂定级；升降级（阈值按局部步长）；**跳档考核（升 1/2 级）**；防刷；`progress.json` + `.bak`；评级沙盘；**进度导出 JSON** | 逐级独立校准误差仍 ±150~480 |
 | **手谈**（lan） | 初版可用 | 房间码 6 位、创建/加入、观战、**状态走 WS 推送（聊天同帧）**、悔棋需同意、认输、**房间棋钟（主时间 + 读秒，可选 4 档时间制）、超时判负**、**让子 2~9 子（黑子开局摆好、白先走、贴 0.5）、房主在等人阶段可改时间制与让子**、UDP 局域网自动发现、**扫码入座二维码**、**重开页面自动回座**、WS 断开时 6s 兜底轮询 + **断线提示条**、**观战者看到自己的角色与两台钟** | 开局后不能改设置（需重开房）；让子只在建房/等人阶段定 |
-| 教学 / 题库 | 初版可用 | 2 课跟做（提子/角上的气）、**100 道自建提子题**（`scripts/gen-tsumego.mjs` 生成并用规则引擎逐题验算）、10 题测级（从题库均匀抽）、题库数据有独立测试守着 | 定式练习、更高难度题库（手筋/死活）、AI 辅助判题 |
-| 主题 | 两套内置可用 | `walnut`（胡桃木，默认）+ `youth`（星弈·青）；即时切换 + 5 秒撤销 | 主题预览卡片；zip 导入导出；`style.css` 加载白名单 |
+| 教学 / 题库 | 初版可用 | 2 课跟做（提子/角上的气）、**100 道自建提子题**（`scripts/gen-tsumego.mjs` 生成并用规则引擎逐题验算）、10 题测级（从题库均匀抽）、题库数据有独立测试守着、**6 个定式跟做（W1，每步都用规则引擎验过合法）** | 更高难度题库（手筋/死活）、AI 辅助判题 |
+| **主题** | 三套内置 + 可导入 | `walnut`（默认）/ `youth`（星弈·青）/ `bamboo`（竹青）；即时切换 + 5 秒撤销；预览卡片；**zip 导入导出（只收 `theme.json` + 图片，禁 CSS/JS）**；token 白名单逐项校验 | 主题包 `assets/` 图片能存能取，但界面还没消费（棋盘贴图/装饰层）；`style.css` 白名单**已永久放弃**（见 §12） |
 | Electron | 未开始 | — | 换壳、窗口、图标、启动画面 |
 | 引擎 | 已接入真机 | GTP 串行客户端、分析流、三后端探测、五步自检、进程守护、离线对手 | 摆棋用的 `playoutDoublingAdvantage` 滑杆 |
 
-**测试规模**：143 项 / 10 个文件（rules 30 · server API 23 · room 计时与设置 15 · clock 10 · engine 14 · rating 25 · sgf 5 · joseki 14 · 题库数据 3 · review 分块 4）。
+**测试规模**：164 项 / 11 个文件（rules 30 · server API 23 · room 计时与设置 15 · clock 10 · engine 14 · rating 25 · sgf 5 · joseki 14 · 题库数据 3 · review 分块 4 · **主题包 21**）。
 
 **本机引擎现状**（`data/config.json`，不入库）：KataGo 1.18.2 CUDA + 主模型 + human 模型，显存占用 985 MB / 4096 MB。换机器时这份配置不存在 → 引擎状态为 `unconfigured`，自在模式自动退化为离线对手，修习模式返回 409。
 
@@ -112,23 +112,28 @@ server/src/
   gameService.ts            对局/结算/分析/进度/沙盘（业务中枢）
   match.ts                  一局 = rules.Game + 模式元信息 + AI 回合
   sgf.ts                    SGF 树解析 / 导出（AB/AW/PL/KM）
+  joseki.ts                 定式数据加载 + 判一手（W1）
   config.ts                 config.json 结构与深合并
   paths.ts                  数据目录定位
+  themePack.ts              主题包：自写 zip 读写 + token 白名单 + data/themes 存取
 web/src/
   App.tsx                   视图切换、主题、断线提示、?view= / ?theme= 调试直达
   board/Board.tsx           SVG 棋盘（几何、坐标、虚影、形势图、死子叉）
   modes/GameView.tsx        对局界面（三模式共用，靠 CAPS 分叉）
   modes/Menu.tsx            主界面
+  modes/LearnView.tsx       教学：跟做 / 题库 / 定式 / 测级 四个 tab
   panels/AnalysisPanel.tsx  候选点列表 + 胜率/目差 + 深入
   panels/MoveList.tsx       手数列表
-  Settings.tsx              引擎三步向导 + 界面/音效/沙盘
-  theme/skins.ts            两套 token + CSS 变量生成
+  Settings.tsx              引擎三步向导 + 界面/音效/沙盘 + 主题面板（导入导出）
+  theme/skins.ts            三套 token + CSS 变量生成 + 导入主题的本地缓存/hydrate
+  theme/packs.ts            主题包同步/导入/导出（只搬 token，不碰 css）
   styles/lan.css            手谈专用样式（观战/断线提示条、棋钟状态字）
   sound.ts                  WebAudio 合成音（3 音色 × 落子/提子/磬）
   api.ts / types.ts         请求封装 / 类型转发
 scripts/calibrate.mjs       相邻级互下 → 拟合成等级表
 scripts/fit-ranks.mjs       保序回归（含 95% 区间估算）
 data/ranks.json             等级校准表（入库，唯一的数据类产物）
+data/themes/<id>/theme.json 三套内置主题（入库；导出时读这份，与 skins.ts 由测试守着一致）
 docs/                       引擎安装 / 评级说明 / 主题规范 / 测试清单
 ```
 
@@ -422,6 +427,10 @@ node scripts/fit-ranks.mjs data/calibration/<stamp>.jsonl    # 保序回归 + �
 | POST | `/api/progress/name` | 改名 |
 | POST | `/api/progress/reset` | 重置（需确认串） |
 | POST | `/api/simulate/ranked` | 评级沙盘：在存档副本上跑 N 盘，**不动存档** |
+| GET | `/api/theme` | 主题列表（内置 + 已导入），含 tokens / variants / assets 的 URL |
+| POST | `/api/theme/import` | body = **zip 原始字节**（`content-type: application/zip`）→ `{ theme, warnings }`；校验不过 400 + 中文原因 |
+| GET | `/api/theme/:id/export` | 下载 zip（`content-disposition: attachment`） |
+| GET | `/api/theme/:id/asset/:file` | 主题包里的图片（png/jpg/webp，文件名白名单 + 穿越校验） |
 
 **空 body 约定**：无参 POST 可以不带 body；若带了 `content-type: application/json` 但 body 为空，服务端 contentTypeParser 会当 `{}`（曾经全员 500）。客户端 `api.req` 只在有 body 时才设 content-type。
 
@@ -436,7 +445,7 @@ node scripts/fit-ranks.mjs data/calibration/<stamp>.jsonl    # 保序回归 + �
 | 落子虚影 | `hoverMark: 'square'（默认）\| 'ghost'`；square = accent 实心块 0.72 + boardLine 细边，换主题也看得清 |
 | 形势图 | ownership 叠色，黑深蓝 / 白暖橙，透明度上限 35%，按 F 切换 |
 | 音效 | WebAudio 现场合成，零素材；3 音色 `jade/porcelain/wood`；提子音 ×1.14 并叠击；**按盘面增量触发**，悔棋不响 |
-| 主题 | `skins.ts` 两套 token → CSS 变量挂在根节点；切换 5 秒内可撤销 |
+| 主题 | `skins.ts` 三套 token → CSS 变量挂在根节点；切换 5 秒内可撤销；导入的主题进 `SKINS`（可变数组）+ localStorage 缓存（App.tsx 不改也能切换/刷新记得） |
 | 调试直达 | `?view=free\|ranked\|lan\|settings\|menu` + `?theme=walnut\|youth`（不影响正常使用） |
 | 模式分叉 | 一律读 `CAPS[mode]`；三模式共用一个 `GameView` |
 | 移动端 | ≤640px 顶栏换行、按钮收窄、棋盘占上半屏；手机只给下棋/看谱（不给分析） |
@@ -456,19 +465,36 @@ node scripts/fit-ranks.mjs data/calibration/<stamp>.jsonl    # 保序回归 + �
 | `motion` | speed(ms) / bounce(bool) |
 | `font` | title / body |
 | `decor` | `[]` / `["glow"]`（性能不达标时自动关） |
-| `playerMark` | `seal`（内置两套都用它；`avatarCard` 预留） |
+| `playerMark` | `seal`（内置三套都用它；`avatarCard` 预留） |
 
-允许：自定义属性、过渡、滤镜、伪元素、背景图。
-禁止：`@import`、任何远程 URL、JS。schema 不认识的字段**忽略不报错**（旧版软件打开新主题不崩）。
+**主题包（W4）**：zip 里只允许 `theme.json`（根目录，唯一）+ `assets/*.png|jpg|jpeg|webp`。
+出现 `.js` / `.css` / `.html` / `.svg` 或任何其它扩展名一律 400 中文拒绝，**不执行、不注入、不落盘**。
+`style.css` 白名单已永久放弃——「主题 = 纯数据」比「主题能写样式」值钱得多。
 
-两套内置：
+| 校验 | 行为 |
+|---|---|
+| token 白名单 | 只认上表那几个键；color 只收 `#rgb/#rgba/#rrggbb/#rrggbbaa`（不给 CSS 函数留口子） |
+| 值不合法 | **整包拒绝**，报字段名（如 `tokens.color.bg 不是合法颜色`）。不静默换默认值 |
+| 缺字段 | 用默认值（= 胡桃木）补齐 |
+| 不认识的字段 | 忽略 + 写进 `warnings`（含 `css` 字段：提示「主题不允许 CSS」） |
+| 资源限制 | zip ≤5MB · 条目 ≤20 · 单解压 ≤8MB · 解压总 ≤20MB（防 zip 炸弹） |
+| zip 解析 | 自写（零依赖），只支持 store/deflate；拒绝 ZIP64/分卷/加密；只信中央目录，逐条验 CRC |
+
+三套内置：
 
 | 主题 | 气质 | 关键差异 |
 |---|---|---|
 | **胡桃木**（默认） | 米白宣纸 + 深胡桃木 + 细金线 | 宋体标题、2~6px 直角、无阴影、无装饰、200ms、印章 |
 | **星弈·青** | 墨青夜 + 金线 + 紫光 | 黑体、12~24px 大圆角、柔光、glow 装饰层、320ms 弹性、印章 |
+| **竹青**（W4） | 竹青纸 + 墨绿 + 赭石印 | 宋体、6~14px 中圆角、1 级轻投影、无装饰、260ms 不弹、印章 |
 
-未做：主题预览卡片（实时渲染微型界面）、zip 导入导出、`style.css` 白名单加载。
+内置 token 存**两份**：`web/src/theme/skins.ts`（首屏同步用）+ `data/themes/<id>/theme.json`（导出源）。
+`server/test/theme.test.ts` 第一条用例逐字段比对这两份——**改了其中一份没改另一份，测试会红**。
+
+导入的主题：写 `data/themes/<id>/`，同时进 `SKINS`（可变数组，App.tsx 渲染时现查）并缓存进 localStorage
+（`xingyi.themes.custom`），所以「导入后立刻可选」和「刷新后还记得」都不需要改 App.tsx。
+
+未做：主题包 `assets/` 的渲染（棋盘贴图/装饰层）、单主题删除入口。
 
 ---
 
@@ -482,7 +508,8 @@ node scripts/fit-ranks.mjs data/calibration/<stamp>.jsonl    # 保序回归 + �
 | `progress.json.bak` | ✗ | 上一版存档（损坏时回退） |
 | `data/games/*.sgf` | ✗ | 对局棋谱（导出/复盘） |
 | `data/calibration/*.jsonl` | ✗ | 校准原始对局（每行一局） |
-| `data/{tsumego,joseki,themes}/` | 目录占位 | 题库/定式/主题包（P4/P6） |
+| `data/themes/<id>/theme.json` | ✓ | 三套内置主题（导出源）；导入的主题也落这里，但**不该入库**（`.gitignore` 待补白名单） |
+| `data/{tsumego,joseki}/` | ✓ | 题库 / 定式数据 |
 | `backups/progress-YYYYMMDD.json` | ✗ | 每日备份，留 10 份 |
 
 `config.ui` 关键字段：`themeId` · `sound` · `soundPack` · `soundVolume` · `hoverMark` · `showOwnership` · `analysisDepth`(quick/standard/deep) · `playerColor`。
@@ -498,15 +525,15 @@ node scripts/fit-ranks.mjs data/calibration/<stamp>.jsonl    # 保序回归 + �
 | **P1** | 自在：摆棋分析 | 完成（摆子编辑/分析、曲线、跳转、假设对手）；缺变化树编辑 |
 | **P2** | 对 AI 下棋 + 复盘 | 完成（逐手好/一般/失误 + 曲线 + 跳转 + 输棋自动复盘 + 着法名 + 计时/让子） |
 | **P3** | 修习：评级全流程 | 完成（等级表实测、跳档考核、导出） |
-| **P4** | 教学 + 题库 | 2 课 + **100 题** + 测级；缺定式练习（W1 卡） |
+| **P4** | 教学 + 题库 | 2 课 + **100 题** + 测级 + **6 个定式跟做（W1）**；缺定式练习扩展与更高难度题库 |
 | **P5** | 手谈：局域网联机 | 房间码/加入/观战/聊天/悔棋同意/超时/自动发现/二维码/WS 推送/自动回座/**房间棋钟 + 超时判负 + 观战提示 + 让子 + 房主开前改设置**；缺开局后改设置 |
-| **P6** | 主题：预览 + zip 导入导出 | 两套主题可用，其余未做 |
+| **P6** | 主题：三套内置 + zip 导入导出 | 完成（预览卡片、`bamboo`、导入导出、token 白名单、恶意包拒绝）；缺 `assets/` 渲染与主题删除 |
 | **P7** | Electron 换壳 | 未开始 |
 | **P8** | 开源发布：截图/GIF、CI、THIRD-PARTY 核验 | CI 与文档已有，其余待补 |
 
 **剩余工作已按「文件边界」拆成 6 张并行任务卡，见 [`docs/并行开发计划.md`](并行开发计划.md)。**
 一个窗口只做一张卡：W1 定式练习 / W2 手谈计时 / W3 复盘深化 / W4 主题系统 / W5 19 路校准 / W6 桌面壳+发布。
-合并顺序 W5 → W1 → W2 → W3 → W4 → W6。**别在一个窗口里连做多张**——上下文一长，token 全花在回忆上。
+W1~W4 已完成，剩 W5（19 路校准）、W6（桌面壳 + 发布）。**别在一个窗口里连做多张**——上下文一长，token 全花在回忆上。
 
 **已知未收口的小事**：`THIRD-PARTY.md` 里 Sabaki 相关条目已过期（现在零 Sabaki 依赖，棋盘与 SGF 都自研），P8 前重写；`docs/题库规范.md`、`docs/联机协议.md` 未写。
 
@@ -552,6 +579,18 @@ node scripts/fit-ranks.mjs data/calibration/<stamp>.jsonl    # 保序回归 + �
     参数下发与轮询粒度），不是访问数。压 visits 只降质量不提速；要提速只能改引擎层调用方式。
 25. **长任务别用一次 HTTP 请求干到底**：19 路 200 手复盘要 40 秒以上，前端 await 到底等于白屏。
     改成分块（`review()` 每叫一次前进一块 + `progress`），总时长不变但首屏 2.5 秒就可用，还能中断。
+26. **主题包的值非法别「静默换默认值」**：作者会以为自己的主题生效了，实际半坏，还查不出来。
+    缺字段补默认（可接受），**值不合法就整包 400 并报字段名**。
+27. **内置主题不能只存一份**：前端要首屏同步（`skins.ts`），服务端导出要读 JSON（`data/themes/<id>/`）。
+    两份必须由测试逐字段比对，否则改一份忘另一份 → 导出的还是旧配色，而且没人会注意到。
+28. **自写 zip 解析只信中央目录**：本地头里的名字长度/大小可能被数据描述符改写，按本地头切会把数据切错位。
+    另外先判「声明解压大小」再解压，配 `maxOutputLength` 兜住谎报大小的包（zip 炸弹）。
+29. **卡里没给的文件别硬改**：W4 不允许动 `App.tsx`，于是把 `SKINS` 做成可变数组 + 导入主题写 localStorage
+    并在模块加载时 hydrate —— 导入后立刻可选、刷新还记得，一行都不用改 `App`。
+30. **UTF-8 BOM 会让 `JSON.parse` 直接失败**（记事本 / Windows PowerShell 5.1 存的 json 都带 BOM）。
+    读用户提供的 JSON 一律先 `replace(/^\uFEFF/, '')`。
+31. **`createApp(service)` 只拿到 service**：主题目录别再调一遍 `dataPaths()`——测试是用临时目录构造 `GameService` 的，
+    那样会把导入写进仓库的 `data/`。按 service 的 `paths` 字段取（`api.ts` 的 `servicePaths()`，有测试守着隔离）。
 
 ## 16. 常见改动配方
 
@@ -585,7 +624,17 @@ node scripts/fit-ranks.mjs data/calibration/<stamp>.jsonl    # 保序回归 + �
 - 常用入口：`http://127.0.0.1:7388/?view=free&theme=youth`
 - 判断标准：截图目检 + 控制台是否报错（脚本会打印 `页面无 JS 错误`）
 
-### 16.5 提交
+### 16.5 加一套内置主题
+
+1. `web/src/theme/skins.ts`：加 tokens 常量 + 往 `SKINS` 塞一项（`builtin: true`、`tagline`/`description` 写清气质）。
+2. `data/themes/<id>/theme.json`：同样的 tokens / variants，`"builtin": true`。**两份必须一致**（第 4 步会验）。
+3. `server/src/themePack.ts` 的 `BUILTIN_THEME_IDS` 加 id —— 不加的话导入时可以冒用这个 id 覆盖它。
+4. `npm test`：`server/test/theme.test.ts` 第一条用例逐字段比对两份 JSON，红说明漏改。
+5. 设置页看预览卡片 → 切过去把主界面 / 对局页 / 设置页 / 结算页各走一遍（§16.4 截图目检）。
+
+> 只想做**第三方主题**就别动代码：复制 `data/themes/bamboo/theme.json` → 改 `id`/颜色 → 压成 zip → 设置页导入。
+
+### 16.6 提交
 
 - 一个提交一件事；消息用 `feat(scope):` / `fix(scope):` / `docs:` / `chore:`。
 - 提交前：`npm test` 全绿 + `npm run typecheck` 通过 + 本文件同步。

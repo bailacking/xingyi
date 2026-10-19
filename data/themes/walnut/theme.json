@@ -1,0 +1,40 @@
+{
+  "id": "walnut",
+  "name": "胡桃木",
+  "author": "xingyi",
+  "version": "1.0.0",
+  "description": "米白宣纸底、深胡桃木、细金线。宋体、直角、几乎无动效。像一间书房。",
+  "builtin": true,
+  "tokens": {
+    "color": {
+      "bg": "#F7F4EE",
+      "surface": "#FFFDF9",
+      "surfaceAlt": "#F1EBE0",
+      "primary": "#3E2C20",
+      "accent": "#A98C5F",
+      "text": "#2A2622",
+      "textDim": "#6B625A",
+      "line": "#DCD2C2",
+      "board": "#E5C08A",
+      "boardEdge": "#C79E67",
+      "boardLine": "#4A3A2A",
+      "blackStone": "#15110E",
+      "whiteStone": "#FCFAF5",
+      "seal": "#9C3A2E",
+      "sealText": "#FBF7F2",
+      "danger": "#B4432F",
+      "ok": "#4E7A52"
+    },
+    "radius": { "sm": 2, "md": 4, "lg": 6 },
+    "shadow": 0,
+    "density": "comfortable",
+    "motion": { "speed": 200, "bounce": false },
+    "font": {
+      "title": "\"Source Han Serif SC\", \"Noto Serif SC\", \"Songti SC\", \"STSong\", SimSun, serif",
+      "body": "\"Source Han Sans SC\", \"Noto Sans SC\", \"PingFang SC\", \"Microsoft YaHei\", system-ui, sans-serif"
+    },
+    "decor": [],
+    "playerMark": "seal"
+  },
+  "variants": { "button": "flat", "panel": "paper", "playerMark": "seal", "result": "plain" }
+}

@@ -3,6 +3,7 @@ import type { CSSProperties } from 'react';
 import { api, ApiError, type Bootstrap } from './api';
 import { SOUND_PACKS, configureSound, previewPack } from './sound';
 import { SKINS, cssVars, type Skin } from './theme/skins';
+import { exportThemeUrl, importThemeFile, syncThemes } from './theme/packs';
 import type { AppConfigLike } from './types';
 
 interface SettingsProps {
@@ -81,6 +82,43 @@ export function Settings({ bootstrap, themeId, onTheme, onBack, onBootstrap }: S
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [sim, setSim] = useState<Awaited<ReturnType<typeof api.simulateRanked>> | null>(null);
+  // 主题面板：列表用本地状态（SKINS 是可变数组，导入后要触发一次渲染）
+  const [skins, setSkins] = useState<Skin[]>(SKINS);
+  const [themeBusy, setThemeBusy] = useState(false);
+  const [themeMsg, setThemeMsg] = useState<string | null>(null);
+  const [themeWarn, setThemeWarn] = useState<string[]>([]);
+
+  useEffect(() => {
+    let alive = true;
+    syncThemes()
+      .then((list) => {
+        if (alive) setSkins(list);
+      })
+      .catch(() => {
+        /* 服务端没起来就继续用本地缓存，导入按钮会给出中文错误 */
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const onImportTheme = async (file: File | null): Promise<void> => {
+    if (!file) return;
+    setThemeBusy(true);
+    setThemeMsg(null);
+    setThemeWarn([]);
+    try {
+      const { skin, warnings } = await importThemeFile(file);
+      setSkins([...SKINS]);
+      onTheme(skin.id);
+      setThemeMsg(`已导入「${skin.name}」并应用`);
+      setThemeWarn(warnings);
+    } catch (err) {
+      setThemeMsg(err instanceof ApiError ? err.message : err instanceof Error ? err.message : '导入失败');
+    } finally {
+      setThemeBusy(false);
+    }
+  };
 
   useEffect(() => {
     setEngineState(bootstrap.engine);
@@ -284,7 +322,7 @@ export function Settings({ bootstrap, themeId, onTheme, onBack, onBootstrap }: S
             <span className="panel-sub">选中即预览，应用后 5 秒内可撤销</span>
           </div>
           <div className="theme-grid">
-            {SKINS.map((skin) => (
+            {skins.map((skin) => (
               <button
                 key={skin.id}
                 className={`theme-card${skin.id === themeId ? ' is-active' : ''}`}
@@ -302,6 +340,51 @@ export function Settings({ bootstrap, themeId, onTheme, onBack, onBootstrap }: S
                 </div>
               </button>
             ))}
+          </div>
+
+          <div className="controls" style={{ marginTop: 12 }}>
+            <label
+              className="btn"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                opacity: themeBusy ? 0.6 : 1,
+                cursor: themeBusy ? 'progress' : 'pointer',
+              }}
+            >
+              {themeBusy ? '导入中…' : '导入主题包（zip）'}
+              <input
+                type="file"
+                accept=".zip,application/zip"
+                style={{ display: 'none' }}
+                disabled={themeBusy}
+                onChange={(e) => {
+                  const file = e.target.files?.[0] ?? null;
+                  e.target.value = ''; // 允许重复选同一个文件
+                  void onImportTheme(file);
+                }}
+              />
+            </label>
+            <a className="btn" href={exportThemeUrl(themeId)} download>
+              导出当前主题
+            </a>
+          </div>
+          {themeMsg && (
+            <div className="hint" style={{ marginTop: 8 }}>
+              {themeMsg}
+            </div>
+          )}
+          {themeWarn.length > 0 && (
+            <div className="notice hint-warn" style={{ marginTop: 8, lineHeight: 1.8 }}>
+              {themeWarn.map((w) => (
+                <div key={w}>{w}</div>
+              ))}
+            </div>
+          )}
+          <div className="hint" style={{ marginTop: 8 }}>
+            主题包里只允许 <code>theme.json</code> 与 <code>assets/</code> 下的 png/jpg/webp 图片；
+            带 CSS 或 JS 的包会被直接拒绝，程序不执行主题里的任何代码。导入后立刻出现在上面。
           </div>
 
           <div className="field" style={{ marginTop: 16 }}>
