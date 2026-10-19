@@ -40,6 +40,15 @@ const TIME_PRESETS: { id: TimePresetId; name: string; control: { mainSec: number
   { id: 'blitz', name: '3 分包干', control: { mainSec: 180, byoYomiSec: 0, periods: 0 } },
 ];
 
+/** 新对局的全部可调项（改任意一项都要重新开局才生效） */
+interface Setup {
+  size: 9 | 13 | 19;
+  level: number;
+  playerColor: 'B' | 'W';
+  handicap: number;
+  timePreset: TimePresetId;
+}
+
 const fmtClock = (ms: number): string => {
   const total = Math.ceil(ms / 1000);
   const m = Math.floor(total / 60);
@@ -78,7 +87,7 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
   const [assume, setAssume] = useState<number | null>(null);
   const [reviewing, setReviewing] = useState(false);
   const autoReviewed = useRef(false);
-  const [setup, setSetup] = useState({
+  const [setup, setSetup] = useState<Setup>({
     size: bootstrap.config.game.boardSize,
     level: Math.min(8, bootstrap.progress.maxLevel),
     playerColor: bootstrap.config.ui.playerColor,
@@ -110,7 +119,9 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
   }, []);
 
   const startGame = useCallback(
-    async (examLevel?: number | null) => {
+    async (examLevel?: number | null, override?: Partial<Setup>) => {
+      // 改完选择器马上开局时，闭包里的 setup 还是旧值 → 用 override 传新值
+      const next = { ...setup, ...override };
       setBusy(true);
       setError(null);
       setSettlement(null);
@@ -121,6 +132,9 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
       setScorePreview(null);
       setReview(null);
       setReviewing(false);
+      // 切局要退出摆棋，否则编辑盘面会和棋盘尺寸对不上
+      setEditing(false);
+      setEditGrid(null);
       autoReviewed.current = false;
       try {
         const res = await api.newGame(
@@ -128,12 +142,12 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
             ? { mode, examLevel: examLevel ?? null }
             : {
                 mode,
-                size: setup.size,
-                level: setup.level,
-                playerColor: setup.playerColor,
+                size: next.size,
+                level: next.level,
+                playerColor: next.playerColor,
                 komi: 7.5,
-                handicap: setup.handicap,
-                timeControl: TIME_PRESETS.find((t) => t.id === setup.timePreset)?.control ?? null,
+                handicap: next.handicap,
+                timeControl: TIME_PRESETS.find((t) => t.id === next.timePreset)?.control ?? null,
               },
         );
         applyResponse(res);
@@ -172,7 +186,7 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
     }
     setEditing(true);
     setReview(null);
-    setEditGrid(new Array(setup.size * setup.size).fill(0));
+    setEditGrid(new Array((game?.size ?? setup.size) ** 2).fill(0));
     setPalette('B');
   };
 
@@ -449,9 +463,15 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
             <>
               <select
                 value={setup.size}
-                onChange={(e) => setSetup((s) => ({ ...s, size: Number(e.target.value) as 9 | 13 | 19 }))}
+                disabled={busy}
+                onChange={(e) => {
+                  const size = Number(e.target.value) as 9 | 13 | 19;
+                  setSetup((s) => ({ ...s, size }));
+                  // 改路数就是要换棋盘，立刻重开；不用再点「重新开局」
+                  void startGame(null, { size });
+                }}
                 style={{ width: 88 }}
-                title="棋盘路数（改完点重新开局）"
+                title="棋盘路数（改完立刻重开一局）"
               >
                 <option value={9}>9 路</option>
                 <option value={13}>13 路</option>
