@@ -508,7 +508,7 @@ node scripts/fit-ranks.mjs data/calibration/<stamp>.jsonl    # 保序回归 + �
 | `progress.json.bak` | ✗ | 上一版存档（损坏时回退） |
 | `data/games/*.sgf` | ✗ | 对局棋谱（导出/复盘） |
 | `data/calibration/*.jsonl` | ✗ | 校准原始对局（每行一局） |
-| `data/themes/<id>/theme.json` | ✓ | 三套内置主题（导出源）；导入的主题也落这里，但**不该入库**（`.gitignore` 待补白名单） |
+| `data/themes/<id>/theme.json` | 内置 ✓ / 导入 ✗ | 三套内置主题（导出源）；导入的主题也落这里，由 `.gitignore` 白名单挡在库外 |
 | `data/{tsumego,joseki}/` | ✓ | 题库 / 定式数据 |
 | `backups/progress-YYYYMMDD.json` | ✗ | 每日备份，留 10 份 |
 
