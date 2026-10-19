@@ -327,6 +327,8 @@ export function registerRoutes(app: FastifyInstance, service: GameService): void
       komi: m.game.komi,
       moves: m.moveList(),
       setup: { black: m.game.setup.black, white: m.game.setup.white },
+      // 让子局必须带 HA，否则别的 SGF 软件认不出「这是让子棋」（B-002）
+      handicap: m.game.handicap,
       playerBlack: m.playerColor === 'B' ? service.progress.playerName : 'KataGo',
       playerWhite: m.playerColor === 'W' ? service.progress.playerName : 'KataGo',
       result: m.result ? `${m.result.winner ?? 'B'}+${m.result.margin ?? 'R'}` : null,

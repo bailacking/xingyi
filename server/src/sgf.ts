@@ -26,6 +26,8 @@ export interface ParsedSgf {
   /** 变体分支数量（>0 说明棋谱带变化图） */
   variationCount: number;
   result: string | null;
+  /** 让子数（HA 属性；缺省或 <2 记 0） */
+  handicap: number;
   /** 轮到谁下（SGF 的 PL 属性；缺省按黑先 / 摆子白先） */
   firstPlayer: Color;
 }
@@ -152,6 +154,9 @@ export function parseSgf(text: string): ParsedSgf {
 
   const plRaw = (p.PL?.[0] ?? '').toUpperCase();
   const firstPlayer: Color = plRaw === 'W' ? 'W' : plRaw === 'B' ? 'B' : setup.black.length > 0 && setup.white.length === 0 ? 'W' : 'B';
+  // HA 是「让子数」，导出与外部棋谱都靠它区分让子局；只认 2~9
+  const ha = Math.round(Number(p.HA?.[0] ?? 0));
+  const handicap = Number.isFinite(ha) && ha >= 2 ? Math.min(9, ha) : 0;
 
   return {
     root,
@@ -164,6 +169,7 @@ export function parseSgf(text: string): ParsedSgf {
     setup,
     variationCount,
     result: p.RE?.[0] ?? null,
+    handicap,
     firstPlayer,
   };
 }

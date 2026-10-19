@@ -58,4 +58,27 @@ describe('SGF', () => {
   it('空内容给出明确错误', () => {
     expect(() => parseSgf('')).toThrow();
   });
+
+  it('让子局导出带 HA，回读还能认出是让几子（B-002）', () => {
+    const sgf = toSgf({
+      size: 19,
+      komi: 0.5,
+      handicap: 3,
+      setup: { black: [3 * 19 + 15, 15 * 19 + 3, 15 * 19 + 15], white: [] },
+      moves: [],
+    });
+    expect(sgf).toContain('HA[3]');
+    const parsed = parseSgf(sgf);
+    expect(parsed.handicap).toBe(3);
+    expect(parsed.setup.black.length).toBe(3);
+    expect(parsed.firstPlayer).toBe('W');
+    expect(parsed.komi).toBe(0.5);
+  });
+
+  it('HA 只认 2~9，缺省/1 子/乱写都按不让子处理', () => {
+    expect(parseSgf('(;GM[1]SZ[9]AB[cc][gg])').handicap).toBe(0);
+    expect(parseSgf('(;GM[1]SZ[9]HA[1]AB[cc])').handicap).toBe(0);
+    expect(parseSgf('(;GM[1]SZ[9]HA[abc])').handicap).toBe(0);
+    expect(parseSgf('(;GM[1]SZ[9]HA[9])').handicap).toBe(9);
+  });
 });

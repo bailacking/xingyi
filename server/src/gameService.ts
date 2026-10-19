@@ -783,11 +783,14 @@ export class GameService extends EventEmitter {
       throw new ServiceError(400, `只支持 9 / 13 / 19 路棋谱，这个谱是 ${parsed.size} 路`);
     }
     const size = parsed.size as BoardSize;
+    // 让子数只在盘上真有摆子时才认（有些谱只写 HA 不写 AB，照搬会显示「让 N 子」却空盘）
+    const handicap = parsed.setup.black.length >= 2 ? parsed.handicap : 0;
     const match = new Match({
       id: randomUUID().slice(0, 8),
       mode: 'free',
       size,
       komi: Number.isFinite(parsed.komi) ? parsed.komi : DEFAULT_KOMI,
+      handicap,
       level: 8,
       playerColor: 'B',
       opponent: 'human',
