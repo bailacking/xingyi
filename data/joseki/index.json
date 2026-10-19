@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "note": "全部 19 路，落在左上角。坐标一律 y*19+x（与盘面 grid 下标一致），判手时服务端换成 GTP（如 Q16）给提示。每条序列都逐手过规则引擎验算，见 server/test/joseki.test.ts。",
+  "joseki": [
+    {
+      "id": "hoshi-knight-onejump",
+      "title": "星位小飞挂 · 一间跳",
+      "size": 19,
+      "category": "星位",
+      "steps": [
+        { "color": "B", "vertex": 60 },
+        { "color": "W", "vertex": 97 },
+        { "color": "B", "vertex": 98 },
+        { "color": "W", "vertex": 135 }
+      ],
+      "note": "对星位小飞挂最正统的应法：黑一间跳守角，白在三路拆二安定。之后黑拆上边、白夹击右边，两者见合，局部分两分。"
+    },
+    {
+      "id": "hoshi-knight-twojump",
+      "title": "星位小飞挂 · 二间跳",
+      "size": 19,
+      "category": "星位",
+      "steps": [
+        { "color": "B", "vertex": 60 },
+        { "color": "W", "vertex": 97 },
+        { "color": "B", "vertex": 117 }
+      ],
+      "note": "比一间跳轻：二间跳走得快，角上让给白，自己顾外面。适合右边已经有黑子、更看重模样的局面。"
+    },
+    {
+      "id": "hoshi-33-block",
+      "title": "点三三 · 挡",
+      "size": 19,
+      "category": "星位",
+      "steps": [
+        { "color": "B", "vertex": 60 },
+        { "color": "W", "vertex": 40 },
+        { "color": "B", "vertex": 41 },
+        { "color": "W", "vertex": 78 }
+      ],
+      "note": "白点三三取角，黑在四路挡住、白沿三路长。走到这里局部告一段落：黑外势朝右边，白拿到角地，黑可以脱先也可以在四路再拆一手。"
+    },
+    {
+      "id": "komoku-high-tsukehiki",
+      "title": "小目一间高挂 · 托退",
+      "size": 19,
+      "category": "小目",
+      "steps": [
+        { "color": "B", "vertex": 59 },
+        { "color": "W", "vertex": 61 },
+        { "color": "B", "vertex": 41 },
+        { "color": "W", "vertex": 60 },
+        { "color": "B", "vertex": 40 }
+      ],
+      "note": "简明托退：白一间高挂，黑托、白扳、黑退守角。黑拿角地，白得外面的扳头；白此后还有个断点要补（粘或虎），所以白通常先补再脱先。"
+    },
+    {
+      "id": "sansan-hane",
+      "title": "三三 · 扳",
+      "size": 19,
+      "category": "三三",
+      "steps": [
+        { "color": "B", "vertex": 40 },
+        { "color": "W", "vertex": 41 },
+        { "color": "B", "vertex": 60 },
+        { "color": "W", "vertex": 42 }
+      ],
+      "note": "黑占三三，白靠上来，黑扳住不让白顺势压过来，白沿三路长。黑角很结实，白在外面有了头，局部两分。"
+    },
+    {
+      "id": "hoshi-split-two",
+      "title": "星位 · 拆二",
+      "size": 19,
+      "category": "星位",
+      "steps": [
+        { "color": "B", "vertex": 60 },
+        { "color": "W", "vertex": 97 },
+        { "color": "B", "vertex": 62 }
+      ],
+      "note": "不跟白的挂角纠缠：黑直接在四路拆二守住右边，把左边让给白。右边比左边值钱时就这么下，手续少、形也舒展。"
+    }
+  ]
+}

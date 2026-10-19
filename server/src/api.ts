@@ -4,6 +4,7 @@ import { APP_NAME, APP_NAME_EN, APP_VERSION, BOARD_SIZES, CAPS, type Mode } from
 import { toSgf } from './sgf.js';
 import { GameService, ServiceError } from './gameService.js';
 import { discoverRooms } from './discovery.js';
+import { checkJoseki, getJoseki, listJoseki } from './joseki.js';
 
 function body<T>(req: FastifyRequest): T {
   return (req.body ?? {}) as T;
@@ -94,6 +95,18 @@ export function registerRoutes(app: FastifyInstance, service: GameService): void
   app.post<{ Params: { id: string } }>('/api/tsumego/:id/try', async (req) => {
     const b = body<{ vertex?: number }>(req);
     return service.tryTsumego(req.params.id, Number(b.vertex));
+  });
+
+  // ---------------- 定式（W1） ----------------
+
+  app.get('/api/joseki', async () => ({ joseki: listJoseki() }));
+
+  app.get<{ Params: { id: string } }>('/api/joseki/:id', async (req) => getJoseki(req.params.id));
+
+  /** 判一手：{ step, vertex } → { correct, expected?, done, ... }；expected 是 GTP 坐标。 */
+  app.post<{ Params: { id: string } }>('/api/joseki/:id/check', async (req) => {
+    const b = body<{ step?: number; vertex?: number }>(req);
+    return checkJoseki(req.params.id, Number(b.step), Number(b.vertex));
   });
 
   // ---------------- 手谈（联机房间） ----------------
