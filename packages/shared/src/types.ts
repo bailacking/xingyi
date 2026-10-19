@@ -266,13 +266,37 @@ export interface ReviewPoint {
   label: ReviewLabel;
 }
 
+export interface ReviewCounts {
+  good: number;
+  normal: number;
+  mistake: number;
+  unknown: number;
+}
+
+export interface ReviewSummary extends ReviewCounts {
+  /** 按颜色分开计数：对手（AI）的失误也要能单独看 */
+  byColor: { B: ReviewCounts; W: ReviewCounts };
+}
+
+/** 复盘是分块算的：前端每轮询一次就多拿一批点 */
+export interface ReviewProgress {
+  /** 已评估的局面数（含开局局面，0..total） */
+  done: number;
+  /** 需要评估的局面总数 = 手数 + 1（两个相邻局面之差 = 一手损失） */
+  total: number;
+  running: boolean;
+  cancelled: boolean;
+  elapsedMs: number;
+}
+
 export interface ReviewResult {
   size: BoardSize;
   komi: number;
   points: ReviewPoint[];
-  summary: { good: number; normal: number; mistake: number; unknown: number };
+  summary: ReviewSummary;
   /** 是否因为盘面太长而截断 */
   truncated: boolean;
+  progress?: ReviewProgress;
 }
 
 export interface AnalysisResult {

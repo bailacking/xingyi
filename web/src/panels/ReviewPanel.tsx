@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import type { MoveRecord, ReviewPoint, ReviewResult } from '../types';
+import '../styles/review.css';
 
 interface ReviewPanelProps {
   result: ReviewResult;
@@ -7,6 +8,8 @@ interface ReviewPanelProps {
   moves: MoveRecord[];
   onPick: (ply: number) => void;
   onExit: () => void;
+  /** 复盘是分块算的：算的过程中可以喊停，已算出的部分保留 */
+  onCancel?: () => void;
 }
 
 const LABEL_TEXT: Record<ReviewPoint['label'], string> = {
@@ -85,19 +88,51 @@ function WinrateChart({
   );
 }
 
-export function ReviewPanel({ result, ply, moves, onPick, onExit }: ReviewPanelProps) {
+export function ReviewPanel({ result, ply, moves, onPick, onExit, onCancel }: ReviewPanelProps) {
   const current = result.points.find((p) => p.ply === ply) ?? null;
   const mv = ply > 0 ? moves[ply - 1] : null;
   const mistakes = result.points.filter((p) => p.label === 'mistake');
+  const progress = result.progress;
+  const running = progress?.running ?? false;
+  const pct = progress ? Math.round((progress.done / Math.max(1, progress.total)) * 100) : 100;
+  const byColor = result.summary.byColor;
+  const colorOf = (p: ReviewPoint): 'B' | 'W' => moves[p.ply - 1]?.color ?? 'B';
 
   return (
     <section className="panel">
       <div className="panel-head">
         <span className="panel-title">复盘</span>
         <span className="panel-sub">
-          {result.size} 路 · {result.points.length} 手
+          {result.size} 路 · {result.points.length}
+          {running && progress ? ` / ${progress.total - 1}` : ''} 手
         </span>
       </div>
+
+      {progress && running && (
+        <div className="review-progress">
+          <div className="review-progress-head">
+            <span>
+              正在分析 {progress.done} / {progress.total} 个局面
+            </span>
+            <span className="review-elapsed">{Math.round(progress.elapsedMs / 1000)} 秒</span>
+          </div>
+          <div className="review-bar" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
+            <i style={{ width: `${pct}%` }} />
+          </div>
+          <div className="review-progress-foot">
+            <span className="hint">先算的部分已经能点开看，不用等全部算完</span>
+            <button className="btn" onClick={onCancel}>
+              中断复盘
+            </button>
+          </div>
+        </div>
+      )}
+
+      {progress && !running && progress.cancelled && (
+        <div className="review-stopped">
+          已中断：只复盘了前 {result.points.length} 手，后面的手数没有结论。
+        </div>
+      )}
 
       <WinrateChart points={result.points} ply={ply} onPick={onPick} />
       <div className="review-legend">
@@ -108,6 +143,14 @@ export function ReviewPanel({ result, ply, moves, onPick, onExit }: ReviewPanelP
       </div>
 
       <div className="review-summary">
+        <span className="review-color is-black">
+          黑方
+          <b>{byColor.B.mistake}</b> 失误
+        </span>
+        <span className="review-color is-white">
+          白方
+          <b>{byColor.W.mistake}</b> 失误
+        </span>
         <span>
           好 <b>{result.summary.good}</b>
         </span>
@@ -118,6 +161,33 @@ export function ReviewPanel({ result, ply, moves, onPick, onExit }: ReviewPanelP
           失误 <b>{result.summary.mistake}</b>
         </span>
       </div>
+
+      {(byColor.B.mistake > 0 || byColor.W.mistake > 0) && (
+        <table className="review-bycolor">
+          <thead>
+            <tr>
+              <th />
+              <th>好</th>
+              <th>一般</th>
+              <th>失误</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <th className="is-black">黑方</th>
+              <td>{byColor.B.good}</td>
+              <td>{byColor.B.normal}</td>
+              <td className="is-bad">{byColor.B.mistake}</td>
+            </tr>
+            <tr>
+              <th className="is-white">白方</th>
+              <td>{byColor.W.good}</td>
+              <td>{byColor.W.normal}</td>
+              <td className="is-bad">{byColor.W.mistake}</td>
+            </tr>
+          </tbody>
+        </table>
+      )}
 
       {current && (
         <div className="review-current">
@@ -150,9 +220,13 @@ export function ReviewPanel({ result, ply, moves, onPick, onExit }: ReviewPanelP
         {result.points.map((p) => (
           <button
             key={p.ply}
-            className={`review-chip ${LABEL_CLASS[p.label]}${p.ply === ply ? ' is-active' : ''}`}
+            className={`review-chip ${LABEL_CLASS[p.label]} is-${colorOf(p) === 'B' ? 'black' : 'white'}${
+              p.ply === ply ? ' is-active' : ''
+            }`}
             onClick={() => onPick(p.ply)}
-            title={p.loss === null ? '这手不在候选里' : `亏 ${p.loss} 目`}
+            title={`${colorOf(p) === 'B' ? '黑' : '白'} 第 ${p.ply} 手 · ${
+              p.loss === null ? '这手不在候选里' : `亏 ${p.loss} 目`
+            }`}
           >
             {p.ply}
           </button>
@@ -160,9 +234,18 @@ export function ReviewPanel({ result, ply, moves, onPick, onExit }: ReviewPanelP
       </div>
 
       {mistakes.length > 0 && (
-        <div className="hint" style={{ marginTop: 8 }}>
-          失误集中在第 {mistakes.slice(0, 8).map((m) => m.ply).join('、')}
-          {mistakes.length > 8 ? ' 手等' : ' 手'}。
+        <div className="review-mistakes">
+          {mistakes.slice(0, 8).map((m) => (
+            <button
+              key={m.ply}
+              className={`review-mistake is-${colorOf(m) === 'B' ? 'black' : 'white'}`}
+              onClick={() => onPick(m.ply)}
+            >
+              {colorOf(m) === 'B' ? '黑' : '白'} {m.ply}
+              {m.loss === null ? '' : ` · 亏 ${m.loss} 目`}
+            </button>
+          ))}
+          {mistakes.length > 8 && <span className="hint">等 {mistakes.length} 手</span>}
         </div>
       )}
 
@@ -171,7 +254,7 @@ export function ReviewPanel({ result, ply, moves, onPick, onExit }: ReviewPanelP
           退出复盘
         </button>
       </div>
-      {result.truncated && <div className="hint">棋盘太长，只复盘了前 220 手。</div>}
+      {result.truncated && <div className="hint">棋盘太长，只复盘了前 200 手。</div>}
     </section>
   );
 }

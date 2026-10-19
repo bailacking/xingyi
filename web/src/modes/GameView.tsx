@@ -87,6 +87,8 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
   const [assume, setAssume] = useState<number | null>(null);
   const [reviewing, setReviewing] = useState(false);
   const autoReviewed = useRef(false);
+  /** 「中断复盘」标记：置 true 后，下一轮请求先喊停再收最终快照 */
+  const reviewCancelled = useRef(false);
   const [setup, setSetup] = useState<Setup>({
     size: bootstrap.config.game.boardSize,
     level: Math.min(8, bootstrap.progress.maxLevel),
@@ -163,14 +165,26 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
   const startReview = useCallback(async () => {
     const g = gameRef.current;
     if (!g) return;
+    reviewCancelled.current = false;
     setReviewing(true);
     setError(null);
     try {
-      const res = await api.review(g.id);
-      if (res.available) {
-        setReview({ result: res.result, ply: res.result.points.length });
+      // 复盘是分块算的：每叫一次多拿一块（约 2.4 秒），progress.running 为 false 才算完。
+      // 不想等就点「中断」，下一轮先喊停再取最终快照。
+      for (;;) {
+        if (reviewCancelled.current) await api.reviewCancel(g.id).catch(() => undefined);
+        const res = await api.review(g.id);
+        if (!res.available) {
+          setError(res.reason);
+          break;
+        }
+        setReview((prev) => ({
+          result: res.result,
+          ply: prev ? prev.ply : Math.max(0, res.result.points.length),
+        }));
         setShowResult(false);
-      } else setError(res.reason);
+        if (!res.result.progress?.running) break;
+      }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : '复盘失败');
     } finally {
@@ -823,6 +837,9 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
             moves={game.moves}
             onPick={(ply) => setReview((r) => (r ? { ...r, ply } : r))}
             onExit={() => setReview(null)}
+            onCancel={() => {
+              reviewCancelled.current = true;
+            }}
           />
         ) : (
         <AnalysisPanel

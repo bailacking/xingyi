@@ -4,12 +4,17 @@ import type { Board } from './board.js';
 /**
  * 着法名：只给**几何上确定**的几种，拿不准就不标（返回 undefined）。
  *
- * 这里刻意不做「扳/挡/压/镇/飞封」那套细分——它们的定义依赖全局棋形与意图，
+ * 这里刻意不做「压/托/碰/靠/挤/刺」那套细分——它们的定义依赖全局棋形与意图，
  * 用局部规则硬猜会给出误人子弟的标签。当前只标：
- * 提子 / 打吃 / 接 / 长 / 立 / 跳 / 飞 / 尖。
+ * 提子 / 打吃 / 接 / 扳 / 挡 / 镇 / 长 / 立 / 跳 / 飞 / 尖。
+ *
+ * 扳、挡、镇 的判据都要求几何唯一，拿不准一律不标：
+ * - 扳：斜对角有己方子，且这手贴着的敌方子正是那颗己方子的邻子（对方「长」的位置）；
+ * - 挡：正面顶住对方一条同色直线（敌方子背后还有同色子），不猜「护空」的挡；
+ * - 镇：与敌子隔一路、更靠中腹、不接触敌子。
  *
  * 判定顺序（先命中先返回，避免一手既像飞又像尖时乱标）：
- * 提子 > 打吃 > 接 > 立 > 长 > 跳 > 飞 > 尖
+ * 提子 > 打吃 > 接 > 扳 > 挡 > 镇 > 立 > 长 > 跳 > 飞 > 尖
  */
 export function moveName(
   before: Board,
@@ -72,12 +77,59 @@ export function moveName(
     return undefined;
   }
 
-  // 不挨着自己的棋：跳 / 飞 / 尖
-  const has = (dx: number, dy: number): boolean => {
-    const nx = x + dx;
-    const ny = y + dy;
-    return nx >= 0 && ny >= 0 && nx < size && ny < size && before.at(ny * size + nx) === mine;
-  };
+  // 不挨着自己的棋：扳 / 挡 / 镇 / 跳 / 飞 / 尖
+  const at2 = (px: number, py: number): number =>
+    px >= 0 && py >= 0 && px < size && py < size ? before.at(py * size + px) : -1;
+  const has = (dx: number, dy: number): boolean => at2(x + dx, y + dy) === mine;
+
+  // 扳：双方贴紧时，从斜对角走到对方「长」的位置。
+  // 几何：斜对角有自己的子，且这手正交贴着的敌方子正是那颗己方子的邻子
+  //      （即 e = (x±1, y) 或 (x, y±1)，紧贴斜对角的己方子）。
+  // 反例：斜对角是自己的子但中间没敌方子（那是「尖」，不是扳）。
+  let hane = 0;
+  for (const [dx, dy] of [
+    [1, 1],
+    [1, -1],
+    [-1, 1],
+    [-1, -1],
+  ] as const) {
+    if (at2(x + dx, y + dy) !== mine) continue;
+    if (at2(x + dx, y) === theirs || at2(x, y + dy) === theirs) hane += 1;
+  }
+  if (hane > 0) return '扳';
+
+  // 挡：迎头拦住对方正在延伸的一条线。
+  // 几何：正交贴着一颗敌方子，且那颗子沿着「远离这手」的方向还有同色邻子
+  //      （对方的冲/长被正面顶住）。
+  // 只认贴紧的迎头拦，不猜「护空」那种意图性的挡。
+  for (const [nx, ny] of neighbors(size, x, y)) {
+    if (before.at(ny * size + nx) !== theirs) continue;
+    const bx = 2 * nx - x;
+    const by = 2 * ny - y;
+    if (at2(bx, by) === theirs) return '挡';
+  }
+
+  // 镇：在对方棋子向中腹「跳」的位置上下子。
+  // 几何：敌方子在同一行/列隔一路（中间是空点），且这手比那颗子更靠棋盘中心；
+  //      反过来（往边线压）不叫镇。要求这手不接触任何敌子，否则是贴身的扳/挡。
+  const enemyContact = [...neighbors(size, x, y)].some(
+    ([nx, ny]) => before.at(ny * size + nx) === theirs,
+  );
+  if (!enemyContact) {
+    const c = (size - 1) / 2;
+    const dist2 = (px: number, py: number): number => (px - c) ** 2 + (py - c) ** 2;
+    for (const [dx, dy] of [
+      [2, 0],
+      [-2, 0],
+      [0, 2],
+      [0, -2],
+    ] as const) {
+      if (at2(x + dx, y + dy) !== theirs) continue;
+      if (before.at((y + dy / 2) * size + (x + dx / 2)) !== 0) continue;
+      if (dist2(x, y) < dist2(x + dx, y + dy)) return '镇';
+    }
+  }
+
   // 跳：同一行/列隔一个空点
   for (const [dx, dy] of [
     [2, 0],

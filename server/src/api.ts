@@ -249,6 +249,11 @@ export function registerRoutes(app: FastifyInstance, service: GameService): void
 
   app.post<{ Params: { id: string } }>('/api/game/:id/review', async (req) => service.review(req.params.id));
 
+  // 复盘是分块算的：POST /review 每叫一次推进一块并返回进度，这个路由只负责喊停
+  app.post<{ Params: { id: string } }>('/api/game/:id/review/cancel', async (req) =>
+    service.cancelReview(req.params.id),
+  );
+
   app.get<{ Params: { id: string } }>('/api/game/:id/sgf', async (req, reply: FastifyReply) => {
     const m = service.getMatch(req.params.id);
     const sgf = toSgf({

@@ -1,0 +1,132 @@
+/* ---------- 复盘（W3：分块进度 + 分色标注） ---------- */
+/* 只放 styles.css 里没有的新类；老的 .review-chart / .review-chip 定义不动 */
+
+.review-progress {
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface-alt));
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  margin: 8px 0 6px;
+}
+
+.review-progress-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.review-elapsed {
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.review-bar {
+  position: relative;
+  height: 6px;
+  margin: 6px 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--line) 70%, transparent);
+  overflow: hidden;
+}
+
+.review-bar > i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--primary), var(--accent));
+  transition: width 0.35s ease;
+}
+
+.review-progress-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.review-progress-foot .hint {
+  margin: 0;
+  font-size: 11px;
+}
+.review-progress-foot .btn {
+  padding: 2px 10px;
+  font-size: 11px;
+}
+
+.review-stopped {
+  margin: 8px 0 6px;
+  padding: 6px 9px;
+  font-size: 11px;
+  border-radius: var(--radius-sm);
+  border: 1px dashed color-mix(in srgb, var(--danger) 45%, var(--line));
+  color: var(--text-dim);
+}
+
+/* 分色统计：黑/白各自的失误数 */
+.review-summary .review-color b {
+  margin-left: 3px;
+}
+
+.review-bycolor {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  margin: 4px 0 8px;
+  color: var(--text-dim);
+}
+.review-bycolor th,
+.review-bycolor td {
+  padding: 3px 6px;
+  text-align: right;
+  font-weight: 400;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent);
+}
+.review-bycolor thead th {
+  color: var(--text-dim);
+  font-size: 10px;
+}
+.review-bycolor tbody th {
+  text-align: left;
+  color: var(--text);
+}
+.review-bycolor td.is-bad {
+  color: var(--danger);
+}
+
+/* 黑/白方标记：实心点 = 黑方，空心点 = 白方（两套主题下都看得清） */
+.review-color.is-black::before,
+.review-mistake.is-black::before {
+  content: '●';
+  margin-right: 3px;
+  color: var(--text);
+}
+.review-color.is-white::before,
+.review-mistake.is-white::before {
+  content: '○';
+  margin-right: 3px;
+  color: var(--text);
+}
+
+/* 失误列表：按颜色分开点 */
+.review-mistakes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 8px 0 0;
+  align-items: center;
+}
+
+.review-mistake {
+  font: inherit;
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--danger) 45%, var(--line));
+  background: color-mix(in srgb, var(--danger) 8%, var(--surface-alt));
+  color: var(--text);
+  cursor: pointer;
+}
+.review-mistake:hover {
+  border-color: var(--danger);
+}

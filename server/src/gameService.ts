@@ -92,6 +92,107 @@ const DEPTH_PRESETS = {
   deep: { minDurationMs: 600, maxDurationMs: 4200, maxMoves: 8, visits: 900 },
 } as const;
 
+/** 复盘只算前 200 手，再长就截断（引擎逐局面分析，越往后越贵） */
+const REVIEW_LIMIT = 200;
+/** 每次请求推进多少个局面：19 路约 200ms/局面 → 一块 ≈ 2.4 秒，前端进度条走得比较顺 */
+const REVIEW_CHUNK = 12;
+/** 算完的作业留 10 分钟，供前端补拿最终快照 */
+const REVIEW_JOB_TTL_MS = 10 * 60 * 1000;
+
+interface ReviewJob {
+  id: string;
+  size: BoardSize;
+  komi: number;
+  moves: { color: Color; vertex: Vertex }[];
+  /** 要评估的局面数上限（手数，截断到 REVIEW_LIMIT） */
+  limit: number;
+  /** 下一个待评估的局面下标 k（0..limit） */
+  next: number;
+  /** evals[k] = 第 k 个局面（已下 k 手）的黑方目差/胜率 */
+  evals: { lead: number | null; wr: number | null }[];
+  startedAt: number;
+  running: boolean;
+  cancelled: boolean;
+}
+
+/**
+ * 复盘作业表：按对局 id 存一份，分块推进。
+ * 放模块级是因为前端每轮询一次就是一次新请求，服务实例只有一个，语义上等于缓存。
+ */
+const reviewJobs = new Map<string, ReviewJob>();
+
+function pruneReviewJobs(now: number): void {
+  for (const [key, job] of reviewJobs) {
+    if (!job.running && now - job.startedAt > REVIEW_JOB_TTL_MS) reviewJobs.delete(key);
+  }
+}
+
+/** 清掉全部复盘作业（测试与重启用） */
+export function clearReviewJobs(): void {
+  reviewJobs.clear();
+}
+
+/** 把作业的已评估局面拼成前端要的结果（未评估到的局面不出点） */
+function buildReviewResult(job: ReviewJob): ReviewResult {
+  const doneMoves = Math.max(0, job.next - 1);
+  const points: ReviewPoint[] = [];
+  const byColor: ReviewResult['summary']['byColor'] = {
+    B: { good: 0, normal: 0, mistake: 0, unknown: 0 },
+    W: { good: 0, normal: 0, mistake: 0, unknown: 0 },
+  };
+  for (let i = 0; i < doneMoves; i++) {
+    const mv = job.moves[i]!;
+    const before = job.evals[i]!;
+    const after = job.evals[i + 1]!;
+    let loss: number | null = null;
+    let lossWr: number | null = null;
+    if (before.lead !== null && after.lead !== null) {
+      const delta = after.lead - before.lead; // 黑方目差变化
+      loss = Math.max(0, mv.color === 'B' ? -delta : delta);
+      loss = Math.round(loss * 10) / 10;
+    }
+    if (before.wr !== null && after.wr !== null) {
+      const dwr = mv.color === 'B' ? before.wr - after.wr : after.wr - before.wr;
+      lossWr = Math.round(Math.max(0, dwr) * 1000) / 1000;
+    }
+    // 用目差判档：胜率在"已经输定"时会饱和（一直 0%，后面下多臭都不掉），目差不会
+    const scale = job.size === 19 ? 1 : job.size === 13 ? 0.7 : 0.5;
+    const label: ReviewPoint['label'] =
+      loss === null ? 'unknown' : loss <= 1 * scale ? 'good' : loss <= 3 * scale ? 'normal' : 'mistake';
+    byColor[mv.color][label] += 1;
+    points.push({
+      ply: i + 1,
+      winrateBlack: before.wr,
+      scoreLeadBlack: before.lead,
+      loss,
+      lossWinrate: lossWr,
+      label,
+    });
+  }
+  const summary = {
+    ...byColor.B,
+    good: byColor.B.good + byColor.W.good,
+    normal: byColor.B.normal + byColor.W.normal,
+    mistake: byColor.B.mistake + byColor.W.mistake,
+    unknown: byColor.B.unknown + byColor.W.unknown,
+    byColor,
+  };
+  return {
+    size: job.size,
+    komi: job.komi,
+    points,
+    summary,
+    truncated: job.moves.length > job.limit,
+    progress: {
+      done: job.next,
+      total: job.limit + 1,
+      running: job.running,
+      cancelled: job.cancelled,
+      elapsedMs: Date.now() - job.startedAt,
+    },
+  };
+}
+
 /**
  * 服务端唯一的"业务大脑"：对局生命周期、AI 调用、分析、进度结算、存档。
  * 路由只做参数校验与转发，不写业务判断（模式门禁一律读 CAPS）。
@@ -597,6 +698,14 @@ export class GameService extends EventEmitter {
    * 复盘：逐手看"这一手比最佳着法亏了多少目"。
    * 每一手都分析**落子前**的局面（轮到落子方），用候选里最佳与实下着的 scoreLead 差算损失，
    * 这样两边视角一致，不用在相邻局面之间换算出符号错误。
+   *
+   * 性能：分析是**分块**推进的（每次请求前进 REVIEW_CHUNK 个局面就返回），前端轮询拿进度，
+   * 长局不会把一次 HTTP 请求卡到几十秒，也能随时中断。
+   * 实测（19 路 200 手，RTX 3050 Ti，KataGo 1.18.2 CUDA）：每局面固定开销约 200ms，
+   * 与 visits 几乎无关（20 / 80 / 96 / 120 / 200 都试过，平均耗时差 <5%）——
+   * 瓶颈是每次 kata-analyze 的启动与收尾，不是 visits 数。所以不压低 visits：压了只降质量、不提速。
+   * nnCache：全程复用同一个 GTP 会话，盘面靠 `play` 逐手推进（`EngineManager.syncPosition`
+   * 前缀复用），不 clear_board、不重建 session，NN 缓存自然复用。
    */
   async review(id: string): Promise<
     { available: true; result: ReviewResult } | { available: false; reason: string }
@@ -611,66 +720,59 @@ export class GameService extends EventEmitter {
     const moves = m.moveList();
     if (moves.length === 0) return { available: false, reason: '这盘还没有着手，没什么可复盘的' };
 
-    // 逐局面评估（n+1 次），再比较前后两个局面的黑方目差——比"候选里找实下着"稳，
-    // 低段 AI 常常把实下着排在前 8 之外，那种做法会大量 unknown。
-    const LIMIT = 200;
-    const limit = Math.min(moves.length, LIMIT);
-    const evals: { lead: number | null; wr: number | null }[] = [];
-    for (let k = 0; k <= limit; k++) {
-      const turn: Color = k === 0 ? 'B' : moves[k - 1]!.color === 'B' ? 'W' : 'B';
-      const res = await this.engine.analyze({
+    // 棋谱变了（落子/悔棋/导入）就丢掉旧作业重算；否则接着上次的进度算
+    let job = reviewJobs.get(id);
+    if (!job || job.moves.length !== moves.length || job.size !== m.size) {
+      job = {
+        id,
         size: m.size,
         komi: m.game.komi,
-        moves: moves.slice(0, k),
-        turn,
-        level: 15,
-        visits: 120,
-        minDurationMs: 80,
-        maxDurationMs: 300,
-        maxMoves: 1,
-        intervalMs: 80,
-      });
-      const best = res?.candidates[0];
-      // cfg: reportAnalysisWinratesAs=BLACK → winrate / scoreLead 都是黑方视角
-      evals.push({ lead: best ? best.scoreLead : null, wr: best ? best.winrate : null });
+        moves,
+        limit: Math.min(moves.length, REVIEW_LIMIT),
+        next: 0,
+        evals: [],
+        startedAt: Date.now(),
+        running: true,
+        cancelled: false,
+      };
+      reviewJobs.set(id, job);
+      pruneReviewJobs(job.startedAt);
     }
 
-    const points: ReviewPoint[] = [];
-    const summary = { good: 0, normal: 0, mistake: 0, unknown: 0 };
-    for (let i = 0; i < limit; i++) {
-      const mv = moves[i]!;
-      const before = evals[i]!;
-      const after = evals[i + 1]!;
-      let loss: number | null = null;
-      let lossWr: number | null = null;
-      if (before.lead !== null && after.lead !== null) {
-        const delta = after.lead - before.lead; // 黑方目差变化
-        loss = Math.max(0, mv.color === 'B' ? -delta : delta);
-        loss = Math.round(loss * 10) / 10;
+    if (job.running) {
+      const end = Math.min(job.limit + 1, job.next + REVIEW_CHUNK);
+      for (; job.next < end; job.next++) {
+        const k = job.next;
+        const turn: Color = k === 0 ? 'B' : moves[k - 1]!.color === 'B' ? 'W' : 'B';
+        const res = await this.engine.analyze({
+          size: job.size,
+          komi: job.komi,
+          moves: moves.slice(0, k),
+          turn,
+          level: 15,
+          visits: 120,
+          minDurationMs: 80,
+          maxDurationMs: 300,
+          maxMoves: 1,
+          intervalMs: 80,
+        });
+        const best = res?.candidates[0];
+        // cfg: reportAnalysisWinratesAs=BLACK → winrate / scoreLead 都是黑方视角
+        job.evals.push({ lead: best ? best.scoreLead : null, wr: best ? best.winrate : null });
       }
-      if (before.wr !== null && after.wr !== null) {
-        const dwr = mv.color === 'B' ? before.wr - after.wr : after.wr - before.wr;
-        lossWr = Math.round(Math.max(0, dwr) * 1000) / 1000;
-      }
-      // 用目差判档：胜率在"已经输定"时会饱和（一直 0%，后面下多臭都不掉），目差不会
-      const scale = m.size === 19 ? 1 : m.size === 13 ? 0.7 : 0.5;
-      const label: ReviewPoint['label'] =
-        loss === null ? 'unknown' : loss <= 1 * scale ? 'good' : loss <= 3 * scale ? 'normal' : 'mistake';
-      summary[label] += 1;
-      points.push({
-        ply: i + 1,
-        winrateBlack: before.wr,
-        scoreLeadBlack: before.lead,
-        loss,
-        lossWinrate: lossWr,
-        label,
-      });
+      if (job.next > job.limit) job.running = false;
     }
 
-    return {
-      available: true,
-      result: { size: m.size, komi: m.game.komi, points, summary, truncated: moves.length > limit },
-    };
+    return { available: true, result: buildReviewResult(job) };
+  }
+
+  /** 中断复盘：保留已算出的部分，下一次轮询返回 cancelled=true 的最终快照。 */
+  cancelReview(id: string): { cancelled: boolean } {
+    const job = reviewJobs.get(id);
+    if (!job || !job.running) return { cancelled: false };
+    job.cancelled = true;
+    job.running = false;
+    return { cancelled: true };
   }
 
   // ------------------------------------------------------------ 导入

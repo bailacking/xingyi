@@ -116,6 +116,9 @@ export const api = {
     req<{ available: true; result: ReviewResult } | { available: false; reason: string }>(`/api/game/${id}/review`, {
       method: 'POST',
     }),
+  /** 中断复盘（已算出的部分保留） */
+  reviewCancel: (id: string) =>
+    req<{ cancelled: boolean }>(`/api/game/${id}/review/cancel`, { method: 'POST' }),
   analyze: (id: string, depth?: string, assumeLevel?: number | null) =>
     req<AnalyzeResponse>(`/api/game/${id}/analyze`, {
       method: 'POST',
