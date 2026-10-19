@@ -48,6 +48,27 @@
   min-width: 0;
 }
 
+/* 房主在等人阶段的设置块：贴着 stat 表下面，用一条虚线分开 */
+.lan-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0 4px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--line);
+}
+
+.lan-settings-title {
+  font-size: 11px;
+  color: var(--text-dim);
+  letter-spacing: 0.08em;
+}
+
+.lan-settings .controls select {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+
 /* 窄屏：两台钟允许换行，别把棋盘挤没了 */
 @media (max-width: 640px) {
   .lan-banner {

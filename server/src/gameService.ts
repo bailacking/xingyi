@@ -21,7 +21,7 @@ import {
   type Vertex,
 } from '@xingyi/shared';
 import { Game } from '@xingyi/rules';
-import { Room, RoomError, makeRoomCode } from './room.js';
+import { Room, RoomError, makeRoomCode, type RoomSettings } from './room.js';
 import { DEFAULT_TIME_CONTROL } from './clock.js';
 import { handicapKomi, handicapStones } from './handicap.js';
 import { detectHardware, offlineMove, type CheckResult, type EngineManager } from '@xingyi/engine';
@@ -784,17 +784,33 @@ export class GameService extends EventEmitter {
     clientId: string;
     /** 与 /api/game 同结构：null = 不限时，不传 = 10 分 + 3×30 秒 */
     timeControl?: TimeControl | null;
+    /** 让子 2~9；1 与非数字都按 0 处理，让 2 子以上贴目自动变 0.5 */
+    handicap?: number;
   }): RoomSeat {
     const size: BoardSize = BOARD_SIZES.includes(opts.size ?? 19) ? (opts.size as BoardSize) : 19;
     const komi = Number.isFinite(opts.komi) ? Number(opts.komi) : DEFAULT_KOMI;
     const name = (opts.name ?? '').trim().slice(0, 12) || '房主';
     const timeControl: TimeControl | null =
       opts.timeControl === null ? null : (opts.timeControl ?? DEFAULT_TIME_CONTROL);
-    const room = new Room(makeRoomCode(new Set(this.rooms.keys())), size, komi, timeControl);
+    const room = new Room(makeRoomCode(new Set(this.rooms.keys())), size, komi, timeControl, opts.handicap ?? 0);
     this.rooms.set(room.code, room);
     const color = room.seat(opts.clientId, name);
     this.emit('room', room.snapshot());
     return { room: room.snapshot(), color };
+  }
+
+  /** 房主在等人阶段改时间制 / 让子（开局后拒绝，见 Room.updateSettings） */
+  updateRoomSettings(code: string, clientId: string, patch: RoomSettings): Room {
+    const room = this.roomOf(code);
+    if (!clientId) throw new ServiceError(400, '缺少客户端标识');
+    try {
+      room.updateSettings(clientId, patch);
+    } catch (err) {
+      if (err instanceof RoomError) throw new ServiceError(err.status, err.message);
+      throw err;
+    }
+    this.emit('room', room.snapshot());
+    return room;
   }
 
   joinRoom(code: string, opts: { name?: string; clientId: string }): RoomSeat {

@@ -200,6 +200,8 @@ export interface RoomView {
   code: string;
   size: BoardSize;
   komi: number;
+  /** 让子数（0 = 不让）；让子局黑棋已摆好，白先走 */
+  handicap: number;
   status: RoomStatus;
   toPlay: Color;
   grid: number[];

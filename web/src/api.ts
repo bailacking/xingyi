@@ -138,7 +138,21 @@ export const api = {
     clientId: string;
     /** null = 不限时；不传 = 服务端默认 */
     timeControl?: { mainSec: number; byoYomiSec: number; periods: number } | null;
+    /** 让子 2~9 */
+    handicap?: number;
   }) => req<{ room: RoomView; color: Color | 'spectator' }>('/api/room', { method: 'POST', body: JSON.stringify(p) }),
+  roomSettings: (
+    code: string,
+    p: {
+      clientId: string;
+      timeControl?: { mainSec: number; byoYomiSec: number; periods: number } | null;
+      handicap?: number;
+    },
+  ) =>
+    req<{ room: RoomView; chat: RoomChat[] }>(`/api/room/${code}/settings`, {
+      method: 'POST',
+      body: JSON.stringify(p),
+    }),
   roomJoin: (code: string, p: { name?: string; clientId: string }) =>
     req<{ room: RoomView; color: Color | 'spectator' }>(`/api/room/${code}/join`, {
       method: 'POST',

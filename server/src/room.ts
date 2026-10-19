@@ -11,10 +11,19 @@ import {
   type Vertex,
 } from '@xingyi/shared';
 import { Clock } from './clock.js';
+import { handicapKomi, handicapStones } from './handicap.js';
 
 export interface Seat {
   clientId: string;
   name: string;
+}
+
+/** 房间设置（只有房主在等人阶段能改） */
+export interface RoomSettings {
+  /** undefined = 不改；null = 不限时 */
+  timeControl?: TimeControl | null;
+  /** undefined = 不改；0 = 不让子 */
+  handicap?: number;
 }
 
 /** 房间空转超时：两人都在但谁都不动，3 分钟后判「对方没动」。与棋钟无关，别混。 */
@@ -26,15 +35,19 @@ const IDLE_MS = 3 * 60 * 1000;
  *
  * 计时直接复用 `clock.ts`：主时间用完进读秒、读秒每手重置、期数用完判负。
  * 语义与 `Match` 完全一致，不要在这里另写一套。
+ * 让子复用 `handicap.ts`：黑子写进 setup，交给规则层判先后手（让子局白先）。
  */
 export class Room {
   readonly code: string;
   readonly size: BoardSize;
-  readonly komi: number;
-  readonly game: Game;
+  /** 不含让子修正的贴目（改让子时按它重算） */
+  readonly baseKomi: number;
+  komi: number;
+  game: Game;
+  handicap: number;
   /** 时间制；null = 不限时 */
-  readonly timeControl: TimeControl | null;
-  readonly clock: Clock | null;
+  timeControl: TimeControl | null;
+  clock: Clock | null;
   black: Seat | null = null;
   white: Seat | null = null;
   readonly spectators = new Map<string, string>();
@@ -47,13 +60,26 @@ export class Room {
   readonly createdAt = new Date().toISOString();
   private chatSeq = 0;
 
-  constructor(code: string, size: BoardSize, komi: number, timeControl: TimeControl | null = null) {
+  constructor(code: string, size: BoardSize, komi: number, timeControl: TimeControl | null = null, handicap = 0) {
     this.code = code;
     this.size = size;
-    this.komi = komi;
+    this.baseKomi = komi;
+    this.handicap = normalizeHandicap(handicap);
+    this.komi = handicapKomi(this.handicap, komi);
     this.timeControl = timeControl;
     this.clock = timeControl ? new Clock(timeControl) : null;
-    this.game = new Game({ size, komi });
+    this.game = this.buildGame();
+  }
+
+  /** 让子局：黑子摆进 setup，先手交给规则层（摆黑子且无白子 = 白先走） */
+  private buildGame(): Game {
+    const black = handicapStones(this.size, this.handicap);
+    return new Game({
+      size: this.size,
+      komi: this.komi,
+      handicap: this.handicap,
+      setup: black.length ? { black, white: [] } : undefined,
+    });
   }
 
   seat(clientId: string, name: string): Color | 'spectator' {
@@ -99,6 +125,35 @@ export class Room {
   }
 
   /**
+   * 房主在等人阶段改房间设置（时间制 / 让子）。
+   * 开局后锁死：已有的手数与读秒状态跟新设置对不上，硬改只会互相矛盾。
+   */
+  updateSettings(clientId: string, patch: RoomSettings): void {
+    if (this.black?.clientId !== clientId) throw new RoomError(403, '只有房主（执黑）能改房间设置');
+    if (this.status === 'playing') throw new RoomError(400, '已经开局了，改不了；想换设置请重开一间');
+    if (this.status === 'finished') throw new RoomError(400, '这盘已经结束了');
+    if (this.game.moves.length > 0) throw new RoomError(400, '棋盘上已经有子了，改不了');
+
+    let changed = false;
+    if (patch.timeControl !== undefined) {
+      this.timeControl = patch.timeControl;
+      // 换时间制 = 换一只新表；等人阶段表本来就是停的
+      this.clock = patch.timeControl ? new Clock(patch.timeControl) : null;
+      changed = true;
+    }
+    if (patch.handicap !== undefined) {
+      const next = normalizeHandicap(patch.handicap);
+      if (next !== this.handicap) {
+        this.handicap = next;
+        this.komi = handicapKomi(next, this.baseKomi);
+        this.game = this.buildGame();
+        changed = true;
+      }
+    }
+    if (changed) this.lastMoveAt = Date.now();
+  }
+
+  /**
    * 推进棋钟并处理超时判负。**幂等**：REST 快照和秒级 ticker 都会调，
    * `Clock.switchTo` 同色重复调用不重置读秒（AGENTS.md §15.18）。
    */
@@ -136,6 +191,7 @@ export class Room {
       code: this.code,
       size: this.size,
       komi: this.komi,
+      handicap: this.handicap,
       status: this.status,
       toPlay: this.game.toPlay,
       grid: Array.from(this.game.board.grid),
@@ -240,6 +296,13 @@ export class RoomError extends Error {
   ) {
     super(message);
   }
+}
+
+/** 让子数归一：1 子没有意义（等于不让），上限 9，非数字当 0 */
+export function normalizeHandicap(n: unknown): number {
+  const v = Math.round(Number(n));
+  if (!Number.isFinite(v) || v < 2) return 0;
+  return Math.min(9, v);
 }
 
 /** 6 位房间码：去掉容易看错的 0/O/1/I */

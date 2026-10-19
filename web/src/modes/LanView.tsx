@@ -40,6 +40,22 @@ const controlName = (c: TimeControlLike | null): string => {
   return `${main} + ${c.periods}×${c.byoYomiSec} 秒`;
 };
 
+const presetIdOf = (c: TimeControlLike | null): string => {
+  const hit = TIME_PRESETS.find(
+    (p) =>
+      (p.control === null && c === null) ||
+      (p.control &&
+        c &&
+        p.control.mainSec === c.mainSec &&
+        p.control.byoYomiSec === c.byoYomiSec &&
+        p.control.periods === c.periods),
+  );
+  return hit?.id ?? '10m';
+};
+
+const HANDICAP_CHOICES = [0, 2, 3, 4, 5, 6, 7, 8, 9];
+const handicapLabel = (n: number): string => (n >= 2 ? `让 ${n} 子` : '不让子');
+
 const fmtClock = (ms: number): string => {
   const total = Math.ceil(ms / 1000);
   const m = Math.floor(total / 60);
@@ -70,6 +86,10 @@ export function LanView({ bootstrap, onBack }: LanViewProps) {
   const [code, setCode] = useState('');
   const [size, setSize] = useState<9 | 13 | 19>(9);
   const [timePreset, setTimePreset] = useState('10m');
+  const [handicap, setHandicap] = useState(0);
+  /** 等人阶段房主的待提交设置（以服务端快照为准，改动只是草稿） */
+  const [editTime, setEditTime] = useState('10m');
+  const [editHandicap, setEditHandicap] = useState(0);
   const [text, setText] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -135,6 +155,14 @@ export function LanView({ bootstrap, onBack }: LanViewProps) {
     if (connected) setEverConnected(true);
   }, [connected]);
 
+  // 等人阶段把服务端的设置同步到草稿；进房/开房时各执行一次
+  useEffect(() => {
+    if (!room || room.status !== 'waiting') return;
+    setEditTime(presetIdOf(room.clock?.control ?? null));
+    setEditHandicap(room.handicap);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [room?.code, room?.status]);
+
   // 兜底：WS 断了才需要轮询，间隔放宽到 6 秒，别把「推送」做成「轮询换皮」
   useEffect(() => {
     const current = room?.code;
@@ -190,6 +218,7 @@ export function LanView({ bootstrap, onBack }: LanViewProps) {
         name: bootstrap.progress.playerName,
         clientId: me,
         timeControl: preset.control,
+        handicap,
       });
       setRoom(res.room);
       setMyColor(res.color);
@@ -203,8 +232,28 @@ export function LanView({ bootstrap, onBack }: LanViewProps) {
     }
   };
 
-  const join = async (target?: string): Promise<void> => {
-    const targetCode = (target ?? code).trim().toUpperCase();
+  /** 房主在等人阶段提交设置；服务端会再校验一次（非房主/已开局直接拒） */
+  const saveSettings = async (): Promise<void> => {
+    const current = roomRef.current;
+    if (!current) return;
+    const preset = TIME_PRESETS.find((p) => p.id === editTime) ?? TIME_PRESETS[1];
+    setBusy(true);
+    try {
+      apply(
+        await api.roomSettings(current.code, {
+          clientId: me,
+          timeControl: preset.control,
+          handicap: editHandicap,
+        }),
+      );
+    } catch (err) {
+      fail(err, '设置没改成');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const join = async (target?: string): Promise<void> => {    const targetCode = (target ?? code).trim().toUpperCase();
     if (targetCode.length < 4) {
       setError('房间码是 6 位字母数字');
       return;
@@ -382,6 +431,15 @@ export function LanView({ bootstrap, onBack }: LanViewProps) {
                   </select>
                 </div>
                 <div className="controls">
+                  <select value={handicap} onChange={(e) => setHandicap(Number(e.target.value))} title="让子（让 2 子以上贴 0.5 目，白先走）">
+                    {HANDICAP_CHOICES.map((n) => (
+                      <option key={n} value={n}>
+                        {handicapLabel(n)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="controls">
                   <button className="btn btn-primary" onClick={() => void create()} disabled={busy}>
                     创建房间
                   </button>
@@ -441,6 +499,42 @@ export function LanView({ bootstrap, onBack }: LanViewProps) {
                 <span className="stat-key">时间制</span>
                 <span className="stat-val">{controlName(clock?.control ?? null)}</span>
               </div>
+              <div className="stat-row">
+                <span className="stat-key">让子</span>
+                <span className="stat-val">{handicapLabel(room.handicap)}</span>
+              </div>
+              {room.status === 'waiting' && myColor === 'B' && (
+                <div className="lan-settings">
+                  <div className="lan-settings-title">开局前可改（只有房主能改）</div>
+                  <div className="controls">
+                    <select value={editTime} onChange={(e) => setEditTime(e.target.value)}>
+                      {TIME_PRESETS.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="controls">
+                    <select value={editHandicap} onChange={(e) => setEditHandicap(Number(e.target.value))}>
+                      {HANDICAP_CHOICES.map((n) => (
+                        <option key={n} value={n}>
+                          {handicapLabel(n)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="controls">
+                    <button className="btn btn-primary" onClick={() => void saveSettings()} disabled={busy}>
+                      应用到房间
+                    </button>
+                  </div>
+                  <div className="hint">改让子会重摆盘面；开下之后这两项锁定。</div>
+                </div>
+              )}
+              {room.status === 'waiting' && myColor !== 'B' && (
+                <div className="hint">时间制与让子由房主定。</div>
+              )}
               <div className="stat-row">
                 <span className="stat-key">你</span>
                 <span className="stat-val">

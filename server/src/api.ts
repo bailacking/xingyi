@@ -119,6 +119,8 @@ export function registerRoutes(app: FastifyInstance, service: GameService): void
       clientId?: string;
       /** null = 不限时；不传 = 服务端默认（10 分 + 3×30 秒） */
       timeControl?: { mainSec: number; byoYomiSec: number; periods: number } | null;
+      /** 让子 2~9 */
+      handicap?: number;
     }>(req);
     if (!b.clientId) throw new ServiceError(400, '缺少客户端标识');
     return service.createRoom({
@@ -127,7 +129,26 @@ export function registerRoutes(app: FastifyInstance, service: GameService): void
       name: b.name,
       clientId: b.clientId,
       timeControl: b.timeControl,
+      handicap: b.handicap,
     });
+  });
+
+  /** 房主在等人阶段改设置：{ clientId, timeControl?, handicap? }；开局后 400 */
+  app.post<{ Params: { code: string } }>('/api/room/:code/settings', async (req) => {
+    const b = body<{
+      clientId?: string;
+      timeControl?: { mainSec: number; byoYomiSec: number; periods: number } | null;
+      handicap?: number;
+    }>(req);
+    if (!b.clientId) throw new ServiceError(400, '缺少客户端标识');
+    if (b.timeControl === undefined && b.handicap === undefined) {
+      throw new ServiceError(400, '没有要改的设置（timeControl / handicap 至少给一个）');
+    }
+    const room = service.updateRoomSettings(req.params.code, b.clientId, {
+      timeControl: b.timeControl,
+      handicap: b.handicap,
+    });
+    return { room: room.snapshot(), chat: room.chat };
   });
 
   app.get('/api/net', async () => {

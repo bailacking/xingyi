@@ -7,7 +7,7 @@ import { createApp } from '../src/app.js';
 import { loadConfig } from '../src/config.js';
 import { GameService } from '../src/gameService.js';
 import { dataPaths } from '../src/paths.js';
-import { Room } from '../src/room.js';
+import { Room, normalizeHandicap } from '../src/room.js';
 
 const idx = (size: number, x: number, y: number): number => y * size + x;
 
@@ -123,6 +123,66 @@ describe('房间棋钟（复用 clock.ts 语义）', () => {
   });
 });
 
+describe('房间设置：房主在等人阶段改时间制 / 让子', () => {
+  it('建让子房：黑子摆好、白先走、贴 0.5 目', () => {
+    const room = new Room('BBB201', 9, 7.5, null, 4);
+    const snap = room.snapshot();
+    expect(snap.handicap).toBe(4);
+    expect(snap.komi).toBe(0.5);
+    expect(snap.toPlay).toBe('W'); // 规则层判的先后手，不在 Room 里硬写
+    expect(snap.moves.length).toBe(0);
+    expect(snap.grid.filter((v) => v === 1).length).toBe(4);
+  });
+
+  it('房主改时间制 + 让子：盘面重摆、贴目跟着变、开下后走白的表', () => {
+    const room = new Room('BBB202', 9, 7.5, null, 0);
+    room.seat('host', '房主');
+
+    room.updateSettings('host', { timeControl: { mainSec: 180, byoYomiSec: 0, periods: 0 }, handicap: 3 });
+    let snap = room.snapshot();
+    expect(snap.clock?.control).toEqual({ mainSec: 180, byoYomiSec: 0, periods: 0 });
+    expect(snap.handicap).toBe(3);
+    expect(snap.komi).toBe(0.5);
+    expect(snap.grid.filter((v) => v === 1).length).toBe(3);
+    expect(snap.toPlay).toBe('W');
+    expect(snap.clock?.running).toBeNull(); // 还没人入座，表停着
+
+    room.seat('guest', '棋友'); // 到齐 → playing
+    snap = room.snapshot();
+    expect(snap.status).toBe('playing');
+    expect(snap.clock?.running).toBe('W'); // 让子局白先，走白的表
+
+    // 开下之后锁死：房主也改不了
+    expect(() => room.updateSettings('host', { handicap: 0 })).toThrow(/已经开局/);
+    expect(room.snapshot().handicap).toBe(3);
+  });
+
+  it('非房主改不了；未入座的路人也是 403', () => {
+    const room = new Room('BBB203', 9, 7.5, null, 0);
+    room.seat('host', '房主');
+    expect(() => room.updateSettings('stranger', { handicap: 2 })).toThrow(/只有房主/);
+
+    room.seat('guest', '棋友');
+    expect(() => room.updateSettings('guest', { handicap: 2 })).toThrow(/只有房主/);
+  });
+
+  it('让子数归一：1 子 = 不让，超过 9 按 9，乱给按 0', () => {
+    expect(normalizeHandicap(1)).toBe(0);
+    expect(normalizeHandicap(0)).toBe(0);
+    expect(normalizeHandicap(12)).toBe(9);
+    expect(normalizeHandicap('abc')).toBe(0);
+    expect(normalizeHandicap(2.4)).toBe(2);
+  });
+
+  it('不改任何字段时是空操作（不重置棋钟）', () => {
+    const room = new Room('BBB204', 9, 7.5, { mainSec: 60, byoYomiSec: 30, periods: 3 }, 0);
+    room.seat('host', '房主');
+    const before = room.snapshot().clock;
+    room.updateSettings('host', {});
+    expect(room.snapshot().clock).toEqual(before);
+  });
+});
+
 describe('房间 API 的时间制', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'xingyi-room-clock-'));
   const paths = dataPaths(dir);
@@ -170,5 +230,55 @@ describe('房间 API 的时间制', () => {
 
     const def = await app.inject({ method: 'POST', url: '/api/room', payload: { size: 9, clientId: 'y' } });
     expect(def.json().room.clock.control).toEqual({ mainSec: 600, byoYomiSec: 30, periods: 3 });
+  });
+
+  it('建房带让子；房主在等人阶段改设置；开局后 400、非房主 403', async () => {
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/room',
+      payload: { size: 9, clientId: 'host', name: '房主', handicap: 4, timeControl: null },
+    });
+    const code = created.json().room.code;
+    expect(created.json().room.handicap).toBe(4);
+    expect(created.json().room.komi).toBe(0.5);
+    expect(created.json().room.toPlay).toBe('W');
+    expect((created.json().room.grid as number[]).filter((v) => v === 1).length).toBe(4);
+
+    // 房主改：让子 0 + 5 分的钟
+    const changed = await app.inject({
+      method: 'POST',
+      url: `/api/room/${code}/settings`,
+      payload: { clientId: 'host', timeControl: { mainSec: 300, byoYomiSec: 30, periods: 3 }, handicap: 0 },
+    });
+    expect(changed.statusCode).toBe(200);
+    expect(changed.json().room.handicap).toBe(0);
+    expect(changed.json().room.komi).toBe(7.5);
+    expect(changed.json().room.clock.control.mainSec).toBe(300);
+
+    // 路人不能改
+    const stranger = await app.inject({
+      method: 'POST',
+      url: `/api/room/${code}/settings`,
+      payload: { clientId: 'stranger', handicap: 2 },
+    });
+    expect(stranger.statusCode).toBe(403);
+
+    // 什么都不给 → 400
+    const empty = await app.inject({
+      method: 'POST',
+      url: `/api/room/${code}/settings`,
+      payload: { clientId: 'host' },
+    });
+    expect(empty.statusCode).toBe(400);
+
+    // 对手入座后开局 → 房主也改不了
+    await app.inject({ method: 'POST', url: `/api/room/${code}/join`, payload: { clientId: 'guest', name: '棋友' } });
+    const late = await app.inject({
+      method: 'POST',
+      url: `/api/room/${code}/settings`,
+      payload: { clientId: 'host', handicap: 2 },
+    });
+    expect(late.statusCode).toBe(400);
+    expect(late.json().error).toContain('已经开局');
   });
 });
