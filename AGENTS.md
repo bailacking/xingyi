@@ -127,6 +127,7 @@ web/src/
   Settings.tsx              引擎三步向导 + 界面/音效/沙盘 + 主题面板（导入导出）
   theme/skins.ts            四套 token + CSS 变量生成 + 导入主题的本地缓存/hydrate
   theme/packs.ts            主题包同步/导入/导出（只搬 token，不碰 css）
+  theme/Seal.tsx            仿古方印（1:1、楷体、SVG 双边框带抖动，走 --seal / --seal-text）
   styles/lan.css            手谈专用样式（观战/断线提示条、棋钟状态字）
   sound.ts                  WebAudio 合成音（3 音色 × 落子/提子/磬）
   api.ts / types.ts         请求封装 / 类型转发
@@ -446,6 +447,7 @@ node scripts/fit-ranks.mjs data/calibration/<stamp>.jsonl    # 保序回归 + �
 | 形势图 | ownership 叠色，黑深蓝 / 白暖橙，透明度上限 35%，按 F 切换 |
 | 音效 | WebAudio 现场合成，零素材；3 音色 `jade/porcelain/wood`；提子音 ×1.14 并叠击；**按盘面增量触发**，悔棋不响 |
 | 主题 | `skins.ts` 四套 token → CSS 变量挂在根节点；切换 5 秒内可撤销；导入的主题进 `SKINS`（可变数组）+ localStorage 缓存（App.tsx 不改也能切换/刷新记得） |
+| 印章 | `theme/Seal.tsx`：仿古方印（1:1 / 楷体 / SVG 双边框抖动 / 3 字以上右起两列）；`active` = 白文（朱底浅字），否则朱文（红框红字）；只吃 `--seal` 与 `--seal-text` |
 | 调试直达 | `?view=free\|ranked\|lan\|settings\|menu` + `?theme=suxue\|xuanmo\|qingzhu\|yinxing`（不影响正常使用） |
 | 模式分叉 | 一律读 `CAPS[mode]`；三模式共用一个 `GameView` |
 | 移动端 | ≤640px 顶栏换行、按钮收窄、棋盘占上半屏；手机只给下棋/看谱（不给分析） |

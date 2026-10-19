@@ -7,6 +7,7 @@ import { AnalysisPanel } from '../panels/AnalysisPanel';
 import { MoveList } from '../panels/MoveList';
 import { ReviewPanel } from '../panels/ReviewPanel';
 import { playBell, playStone } from '../sound';
+import { Seal } from '../theme/Seal';
 import {
   CAPS,
   CAP_NOTES,
@@ -543,14 +544,12 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
 
         <div className="seals">
           <div className="seal-block">
-            <div className={`seal${humanTurn ? ' is-active' : ''}`}>{levelCnFormal(game?.level ?? 8)}</div>
+            <Seal text={levelCnFormal(game?.level ?? 8)} active={humanTurn} />
             <div className="seal-caption">{isPlacement ? '定级 · 你' : '你'}</div>
           </div>
           <span className="seal-vs">对</span>
           <div className="seal-block">
-            <div className={`seal${!humanTurn && game?.status === 'playing' ? ' is-active' : ''}`}>
-              {levelCnFormal(game?.level ?? 8)}
-            </div>
+            <Seal text={levelCnFormal(game?.level ?? 8)} active={!humanTurn && game?.status === 'playing'} />
             <div className="seal-caption">
               难度 · {opponentLabel}
             </div>

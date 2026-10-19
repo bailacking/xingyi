@@ -328,29 +328,12 @@ body {
   gap: 7px;
 }
 
-.seal {
+/* 仿古方印（web/src/theme/Seal.tsx）：1:1、颜色走 --seal / --seal-text */
+.seal-mark {
   width: 46px;
   height: 46px;
   flex: none;
-  aspect-ratio: 1;
-  border: 2px solid var(--seal);
-  border-radius: var(--radius-sm);
-  color: var(--seal);
-  display: grid;
-  place-items: center;
-  font-family: var(--font-title);
-  font-size: 13px;
-  letter-spacing: 0.08em;
-  writing-mode: vertical-rl;
-  text-orientation: upright;
-  line-height: 1.05;
-  padding: 3px;
-  background: transparent;
-}
-
-.seal.is-active {
-  background: var(--seal);
-  color: var(--seal-text);
+  display: block;
 }
 
 .seal-caption {
@@ -860,10 +843,9 @@ select:focus {
   .side {
     overflow: visible;
   }
-  .seal {
+  .seal-mark {
     width: 36px;
     height: 36px;
-    font-size: 10px;
   }
   .move-list {
     max-height: 130px;
