@@ -221,6 +221,7 @@ for (let n = 1; n <= 6; n++) {
         grid: solved.grid,
         solution: solved.solution,
         capture: solved.capture,
+        dead: solved.dead,
       });
       taken += 1;
     }
@@ -235,9 +236,24 @@ for (let n = 1; n <= 6; n++) {
 // 排序：先按白块大小，同大小按「靠角 → 靠边 → 中央」的锚点顺序（观感上由易到难）
 const sorted = picked.sort((a, b) => a.size - b.size);
 
+const cn = (n) => (n === 1 ? '一' : n === 2 ? '两' : n === 3 ? '三' : n === 4 ? '四' : n === 5 ? '五' : String(n));
+
+/** 这块白棋落在角 / 边 / 中腹（标题里带位置，100 道题才分得清） */
+const regionOf = (dead) => {
+  const xs = dead.map((v) => v % SIZE);
+  const ys = dead.map((v) => Math.floor(v / SIZE));
+  const nearL = Math.min(...xs) <= 2;
+  const nearR = Math.max(...xs) >= SIZE - 3;
+  const nearT = Math.min(...ys) <= 2;
+  const nearB = Math.max(...ys) >= SIZE - 3;
+  if ((nearL || nearR) && (nearT || nearB)) return '角上';
+  if (nearL || nearR || nearT || nearB) return '边上';
+  return '中腹';
+};
+
 const problems = sorted.map((p, i) => ({
   id: `g${String(i + 1).padStart(3, '0')}`,
-  title: `提${p.capture === 1 ? '一' : p.capture === 2 ? '两' : p.capture === 3 ? '三' : p.capture === 4 ? '四' : p.capture === 5 ? '五' : p.capture}子`,
+  title: `提${cn(p.capture)}子 · ${regionOf(p.dead)}`,
   level: p.level,
   size: SIZE,
   komi: 7.5,
