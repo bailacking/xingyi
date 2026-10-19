@@ -21,20 +21,30 @@ interface Problem {
   hint: string;
 }
 
-const LESSONS: { title: string; intro: string; ids: string[] }[] = [
+type Item = { id: string; title: string; level: string };
+
+const LESSONS: { title: string; intro: string; pick: (list: Item[]) => string[] }[] = [
   {
     title: '提子：最后一口气',
     intro: '白棋只剩一口气时，下在那口气上就能把它提掉。数清对方还剩几口气，再落子。',
-    ids: ['t01', 't02', 't03'],
+    // 入门题里挑最简单的 3 道（1~2 子）
+    pick: (list) => list.filter((p) => p.level === '入门').slice(0, 3).map((p) => p.id),
   },
   {
     title: '角上的气',
     intro: '角上的棋子只有两个方向可走，气比中间少。先看边线，再找最后一口气。',
-    ids: ['t04', 't05', 't06'],
+    pick: (list) => list.filter((p) => p.level === '进阶').slice(0, 3).map((p) => p.id),
   },
 ];
 
-const TEST_IDS = ['t01', 't02', 't03', 't04', 't05', 't06', 't07', 't08', 't09', 't10'];
+/** 测级固定 10 题，按题库顺序均匀取样（覆盖各个难度，而不是只考最简单的） */
+const TEST_SIZE = 10;
+
+function pickEven(list: Item[], n = TEST_SIZE): string[] {
+  if (list.length === 0) return [];
+  const step = list.length / Math.min(n, list.length);
+  return Array.from({ length: Math.min(n, list.length) }, (_, i) => list[Math.floor(i * step)]!.id);
+}
 
 /** 本地重放一手（只为把提掉后的盘面画出来，判题仍然在服务端） */
 function applyMove(p: Problem, vertex: number): number[] {
@@ -58,7 +68,7 @@ const levelHint = (score: number): string => {
 
 export function LearnView({ bootstrap, onBack }: LearnViewProps) {
   const [tab, setTab] = useState<Tab>('lesson');
-  const [problems, setProblems] = useState<{ id: string; title: string; level: string }[]>([]);
+  const [problems, setProblems] = useState<Item[]>([]);
   const [current, setCurrent] = useState<Problem | null>(null);
   const [grid, setGrid] = useState<number[] | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -133,15 +143,20 @@ export function LearnView({ bootstrap, onBack }: LearnViewProps) {
     }
   };
 
+  const lessonIds = useMemo(() => LESSONS.map((l) => l.pick(problems)), [problems]);
+  const testIds = useMemo(() => pickEven(problems), [problems]);
+
   const startLesson = (index: number): void => {
     setLessonIndex(index);
-    startQueue(LESSONS[index]!.ids);
+    startQueue(lessonIds[index] ?? []);
     setTab('lesson');
   };
 
   const startTest = (): void => {
     setTab('test');
-    startQueue(TEST_IDS);
+    setScore(0);
+    setFinished(false);
+    startQueue(testIds);
   };
 
   const progressText = useMemo(() => {
@@ -191,7 +206,7 @@ export function LearnView({ bootstrap, onBack }: LearnViewProps) {
               题库
             </button>
             <button className={`btn${tab === 'test' ? ' btn-primary' : ''}`} onClick={() => setTab('test')}>
-              10 题测级
+              测级（10 题）
             </button>
           </div>
 
@@ -205,7 +220,7 @@ export function LearnView({ bootstrap, onBack }: LearnViewProps) {
                   style={{ width: '100%', marginBottom: 6 }}
                 >
                   <span>{lesson.title}</span>
-                  <span className="hint">{lesson.ids.length} 步</span>
+                  <span className="hint">{(lessonIds[i] ?? []).length} 步</span>
                 </button>
               ))}
               <div className="hint" style={{ marginTop: 6 }}>
@@ -223,20 +238,27 @@ export function LearnView({ bootstrap, onBack }: LearnViewProps) {
                 </button>
               ))}
               {problems.length === 0 && <div className="hint">题库还没加载出来。</div>}
+              {problems.length > 0 && (
+                <div className="hint" style={{ marginTop: 4 }}>
+                  共 {problems.length} 题，每题都由规则引擎验算过（白棋确实只剩一口气、正解确实提得掉）。
+                </div>
+              )}
             </div>
           )}
 
           {tab === 'test' && (
             <div style={{ marginTop: 10 }}>
-              <div className="hint">10 道入门提子题，按第一次落子判分。做完给一个粗略级别建议。</div>
+              <div className="hint">
+                从 {problems.length} 道题里均匀抽 10 道，按第一次落子判分，做完给一个粗略级别建议。
+              </div>
               <button className="btn btn-primary" style={{ marginTop: 8 }} onClick={startTest}>
                 开始测级
               </button>
               {finished && (
                 <div className="notice" style={{ marginTop: 10 }}>
-                  答对 {score} / {TEST_IDS.length} 题 · 大约 {levelHint(score)}。
+                  答对 {score} / {testIds.length} 题 · 大约 {levelHint(score)}。
                   <br />
-                  <span className="hint">这只是 10 道提子题，不等于真实段位，仅供参考。</span>
+                  <span className="hint">这只是提子题，不等于真实段位，仅供参考。</span>
                 </div>
               )}
             </div>
