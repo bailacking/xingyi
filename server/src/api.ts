@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import os from 'node:os';
 import { APP_NAME, APP_NAME_EN, APP_VERSION, BOARD_SIZES, CAPS, type Mode } from '@xingyi/shared';
 import { toSgf } from './sgf.js';
 import { GameService, ServiceError } from './gameService.js';
@@ -101,6 +102,26 @@ export function registerRoutes(app: FastifyInstance, service: GameService): void
     const b = body<{ size?: 9 | 13 | 19; komi?: number; name?: string; clientId?: string }>(req);
     if (!b.clientId) throw new ServiceError(400, '缺少客户端标识');
     return service.createRoom({ size: b.size, komi: b.komi, name: b.name, clientId: b.clientId });
+  });
+
+  app.get('/api/net', async () => {
+    // 手谈的二维码要用局域网 IP：在电脑上打开页面时 origin 是 127.0.0.1，手机扫了等于扫自己
+    const addresses: string[] = [];
+    for (const list of Object.values(os.networkInterfaces())) {
+      for (const net of list ?? []) {
+        if (net.family === 'IPv4' && !net.internal) addresses.push(net.address);
+      }
+    }
+    // 排序：192.168 > 10 > 其它；排除 WSL/Docker 常用的 172.16~31 与 169.254 链路本地
+    const score = (ip: string): number => {
+      if (ip.startsWith('192.168.')) return 0;
+      if (ip.startsWith('10.')) return 1;
+      if (/^172\.(1[6-9]|2\d|3[01])\./.test(ip)) return 90;
+      if (ip.startsWith('169.254.')) return 99;
+      return 2;
+    };
+    addresses.sort((a, b) => score(a) - score(b));
+    return { addresses };
   });
 
   app.get('/api/room/discover', async () => ({ rooms: await discoverRooms() }));

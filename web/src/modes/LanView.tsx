@@ -41,10 +41,25 @@ export function LanView({ bootstrap, onBack }: LanViewProps) {
   const [reconnect, setReconnect] = useState(false);
   const [discovering, setDiscovering] = useState(false);
   const [found, setFound] = useState<{ code: string; size: number; host: string; port: number; status?: string }[]>([]);
-  const joinUrl = useMemo(
-    () => (room ? `${location.origin}/?view=lan&room=${room.code}` : ''),
-    [room?.code],
-  );
+  // 手谈的二维码必须用局域网 IP：电脑上打开是 127.0.0.1，手机扫了会扫到它自己
+  const [lanHost, setLanHost] = useState<string | null>(null);
+  useEffect(() => {
+    const loopback = ['127.0.0.1', 'localhost', '::1'].includes(location.hostname);
+    if (!loopback) {
+      setLanHost(location.hostname);
+      return;
+    }
+    void api
+      .netInfo()
+      .then((res) => setLanHost(res.addresses[0] ?? null))
+      .catch(() => setLanHost(null));
+  }, []);
+  const joinUrl = useMemo(() => {
+    if (!room) return '';
+    const port = location.port ? `:${location.port}` : '';
+    const host = lanHost ?? location.hostname;
+    return `http://${host}${port}/?view=lan&room=${room.code}`;
+  }, [room?.code, lanHost]);
   const roomRef = useRef<RoomView | null>(null);
   roomRef.current = room;
 

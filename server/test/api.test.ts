@@ -390,6 +390,12 @@ describe('服务端 REST', () => {
     expect(snap.clock.running).toBe('B');
   });
 
+  it('/api/net 返回局域网地址数组（二维码要用）', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/net' });
+    expect(res.statusCode).toBe(200);
+    expect(Array.isArray(res.json().addresses)).toBe(true);
+  });
+
   it('修改名字写进进度', async () => {
     const res = await app.inject({ method: 'POST', url: '/api/progress/name', payload: { name: '大帅' } });
     expect(res.statusCode).toBe(200);

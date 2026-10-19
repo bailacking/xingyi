@@ -149,6 +149,7 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(p),
     }),
+  netInfo: () => req<{ addresses: string[] }>('/api/net'),
   roomDiscover: () =>
     req<{ rooms: { code: string; size: number; host: string; port: number; status?: string }[] }>(
       '/api/room/discover',
