@@ -636,7 +636,6 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
               hoverMark={bootstrap.config.ui.hoverMark}
               deadStones={!editing && !replay && game.status === 'scoring' ? deadStones : []}
               interactive={editing || (humanTurn && !review)}
-              allowOnOccupied={editing}
               onPlace={(v) => {
                 if (editing) {
                   setEditGrid((g) => {

@@ -16,11 +16,6 @@ export interface BoardProps {
   deadStones?: number[];
   /** 是否允许点棋盘落子 */
   interactive?: boolean;
-  /**
-   * 允许点已有子的格子也走 onPlace（摆棋模式用：改色/擦除都要能点中已有子）。
-   * 对局时保持 false —— 空格才落子，有子的点是「该点已有棋子」的禁着。
-   */
-  allowOnOccupied?: boolean;
   onPlace?: (vertex: number) => void;
   /** 结算阶段：点棋子切换死子 */
   onToggleDead?: (vertex: number) => void;
@@ -42,7 +37,6 @@ export function Board(props: BoardProps) {
     ghost,
     deadStones,
     interactive,
-    allowOnOccupied = false,
     onPlace,
     onToggleDead,
     hoverMark = 'square',
@@ -282,7 +276,7 @@ export function Board(props: BoardProps) {
             width={step}
             height={step}
             fill="transparent"
-            style={{ cursor: interactive && (grid[v] === 0 || allowOnOccupied) ? 'pointer' : onToggleDead && grid[v] ? 'pointer' : 'default' }}
+            style={{ cursor: interactive || (onToggleDead && grid[v]) ? 'pointer' : 'default' }}
             onMouseEnter={() => setHover(v)}
             onMouseLeave={() => setHover((h) => (h === v ? null : h))}
             onClick={() => {
@@ -290,7 +284,9 @@ export function Board(props: BoardProps) {
                 onToggleDead(v);
                 return;
               }
-              if (interactive && (grid[v] === 0 || allowOnOccupied)) onPlace?.(v);
+              // 有子的点也交出去：摆棋要能擦/改色，对局则由服务端回「该点已有棋子」，
+              // 合法性与提示文案只留规则层一处（AGENTS.md §6 I4）。
+              if (interactive) onPlace?.(v);
             }}
           />
         ))}
