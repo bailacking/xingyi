@@ -668,6 +668,8 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
       </div>
 
       <aside className="side">
+        {/* 错误提示放最上面：放侧栏底部时在 1440×900 下会落到视口外，等于没提示（B-003） */}
+        {error && <div className="notice hint-warn">{error}</div>}
         {mode === 'free' && !review && (
           <section className="panel">
             <div className="panel-head">
@@ -867,7 +869,6 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
           onJump={caps.allowUndo && game ? (ply) => void api.undo(game.id, ply).then(applyResponse).catch(() => undefined) : undefined}
         />
 
-        {error && <div className="notice hint-warn">{error}</div>}
         <div className="hint" style={{ textAlign: 'center' }}>
           快捷键：F 形势图 · Esc 关闭结算
         </div>
