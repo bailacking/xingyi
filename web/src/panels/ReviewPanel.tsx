@@ -1,10 +1,10 @@
 import { useMemo } from 'react';
-import type { Color, ReviewPoint, ReviewResult } from '../types';
+import type { MoveRecord, ReviewPoint, ReviewResult } from '../types';
 
 interface ReviewPanelProps {
   result: ReviewResult;
   ply: number;
-  moves: { color: Color; vertex: number }[];
+  moves: MoveRecord[];
   onPick: (ply: number) => void;
   onExit: () => void;
 }
@@ -124,7 +124,8 @@ export function ReviewPanel({ result, ply, moves, onPick, onExit }: ReviewPanelP
           <div className="stat-row">
             <span className="stat-key">第 {current.ply} 手</span>
             <span className="stat-val">
-              {mv ? (mv.color === 'B' ? '黑' : '白') : '—'} · {LABEL_TEXT[current.label]}
+              {mv ? (mv.color === 'B' ? '黑' : '白') : '—'}
+              {mv?.name ? ` ${mv.name}` : ''} · {LABEL_TEXT[current.label]}
             </span>
           </div>
           <div className="stat-row">

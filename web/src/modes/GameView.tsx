@@ -31,6 +31,22 @@ interface GameViewProps {
 
 const cnNumber = (n: number): string => levelCn(Math.abs(n)).replace('级', '');
 
+/** 时间制预设（与服务端 server/src/clock.ts 的 TIME_PRESETS 对齐，改一处要改两处） */
+type TimePresetId = 'none' | '10m' | '5m' | 'blitz';
+const TIME_PRESETS: { id: TimePresetId; name: string; control: { mainSec: number; byoYomiSec: number; periods: number } | null }[] = [
+  { id: 'none', name: '不限时', control: null },
+  { id: '10m', name: '10 分 + 3×30 秒', control: { mainSec: 600, byoYomiSec: 30, periods: 3 } },
+  { id: '5m', name: '5 分 + 3×30 秒', control: { mainSec: 300, byoYomiSec: 30, periods: 3 } },
+  { id: 'blitz', name: '3 分包干', control: { mainSec: 180, byoYomiSec: 0, periods: 0 } },
+];
+
+const fmtClock = (ms: number): string => {
+  const total = Math.ceil(ms / 1000);
+  const m = Math.floor(total / 60);
+  const sec = total % 60;
+  return String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0');
+};
+
 export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) {
   const caps = CAPS[mode];
   const [game, setGame] = useState<GameSnapshot | null>(null);
@@ -66,6 +82,8 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
     size: bootstrap.config.game.boardSize,
     level: Math.min(8, bootstrap.progress.maxLevel),
     playerColor: bootstrap.config.ui.playerColor,
+    handicap: 0,
+    timePreset: '10m' as TimePresetId,
   });
 
   const gameRef = useRef<GameSnapshot | null>(null);
@@ -114,6 +132,8 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
                 level: setup.level,
                 playerColor: setup.playerColor,
                 komi: 7.5,
+                handicap: setup.handicap,
+                timeControl: TIME_PRESETS.find((t) => t.id === setup.timePreset)?.control ?? null,
               },
         );
         applyResponse(res);
@@ -123,7 +143,7 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
         setBusy(false);
       }
     },
-    [applyResponse, mode, setup.level, setup.playerColor, setup.size],
+    [applyResponse, mode, setup.level, setup.playerColor, setup.size, setup.handicap, setup.timePreset],
   );
 
   const startReview = useCallback(async () => {
@@ -534,6 +554,32 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
           </div>
         )}
 
+        {game?.clock && (
+          <div className="clock-bar">
+            {(['B', 'W'] as const).map((c) => {
+              const ms = c === 'B' ? game.clock!.blackMs : game.clock!.whiteMs;
+              const byo = game.clock!.inByoYomi[c];
+              const low = ms <= 20000;
+              return (
+                <span
+                  key={c}
+                  className={'clock' + (game.clock!.running === c ? ' is-running' : '') + (low ? ' is-low' : '')}
+                >
+                  <b>{c === 'B' ? '黑' : '白'}</b>
+                  <span className="clock-time">{fmtClock(ms)}</span>
+                  {byo && (
+                    <span className="clock-byo">
+                      读秒 {'●'.repeat(Math.max(0, game.clock!.periods[c]))}
+                      {game.clock!.periods[c] === 0 ? '最后' : ''}
+                    </span>
+                  )}
+                </span>
+              );
+            })}
+            {game.handicap >= 2 && <span className="badge">让 {game.handicap} 子</span>}
+          </div>
+        )}
+
         <div
           className="board-wrap"
           onDragOver={(e) => {
@@ -589,6 +635,48 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
       </div>
 
       <aside className="side">
+        {mode === 'free' && !review && (
+          <section className="panel">
+            <div className="panel-head">
+              <span className="panel-title">新对局</span>
+              <span className="panel-sub">改完点「开始」</span>
+            </div>
+            <div className="field">
+              <label>让子</label>
+              <select
+                value={setup.handicap}
+                onChange={(e) => setSetup((s2) => ({ ...s2, handicap: Number(e.target.value) }))}
+              >
+                <option value={0}>不让子</option>
+                {[2, 3, 4, 5, 6, 7, 8, 9].map((n) => (
+                  <option key={n} value={n}>
+                    让 {n} 子
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
+              <label>时间</label>
+              <select
+                value={setup.timePreset}
+                onChange={(e) => setSetup((s2) => ({ ...s2, timePreset: e.target.value as TimePresetId }))}
+              >
+                {TIME_PRESETS.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="controls" style={{ marginTop: 8 }}>
+              <button className="btn btn-primary" onClick={() => void startGame(null)} disabled={busy}>
+                开始新对局
+              </button>
+            </div>
+            {setup.handicap >= 2 && <div className="hint">让子局：黑棋先摆好，白棋先走，贴 0.5 目。</div>}
+          </section>
+        )}
+
         {game?.status === 'scoring' && (
           <section className="panel" style={{ borderColor: 'var(--accent)' }}>
             <div className="panel-head">

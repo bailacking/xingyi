@@ -12,6 +12,7 @@ export function MoveList({ size, moves, onJump }: MoveListProps) {
     ply: i + 1,
     color: m.color as Color,
     label: m.vertex === PASS ? '停' : vertexToGtp(size, m.vertex),
+    name: m.name,
     captured: m.captured.length,
   }));
 
@@ -36,6 +37,7 @@ export function MoveList({ size, moves, onJump }: MoveListProps) {
               <span className="idx">{r.ply}</span>
               <span style={{ color: r.color === 'B' ? 'var(--text)' : 'var(--text-dim)' }}>
                 {r.color === 'B' ? '黑' : '白'} {r.label}
+                {r.name && r.name !== '提子' ? ` ${r.name}` : ''}
                 {r.captured ? ` 提${r.captured}` : ''}
               </span>
             </button>

@@ -361,6 +361,35 @@ describe('服务端 REST', () => {
     expect(missing.statusCode).toBe(404);
   });
 
+  it('让子局：黑先摆子、白先走、贴 0.5 目', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/game',
+      payload: { mode: 'free', size: 9, handicap: 4, playerColor: 'W', timeControl: null },
+    });
+    expect(res.statusCode).toBe(200);
+    const snap = res.json().snapshot;
+    expect(snap.handicap).toBe(4);
+    expect(snap.grid.filter((c: number) => c === 1).length).toBe(4);
+    expect(snap.grid.filter((c: number) => c === 2).length).toBe(0);
+    expect(snap.toPlay).toBe('W');
+    expect(snap.komi).toBe(0.5);
+    expect(snap.clock).toBeNull();
+    // 白先走的第一手要能下
+    const move = await app.inject({ method: 'POST', url: `/api/game/${snap.id}/move`, payload: { vertex: idx(9, 4, 4) } });
+    expect(move.statusCode).toBe(200);
+    expect(move.json().snapshot.moves[0].color).toBe('W');
+  });
+
+  it('不传时间制时默认 10 分 + 3×30 秒，快照里有计时', async () => {
+    const res = await app.inject({ method: 'POST', url: '/api/game', payload: { mode: 'free', size: 9 } });
+    const snap = res.json().snapshot;
+    expect(snap.clock).toBeTruthy();
+    expect(snap.clock.control).toEqual({ mainSec: 600, byoYomiSec: 30, periods: 3 });
+    expect(snap.clock.periods).toEqual({ B: 3, W: 3 });
+    expect(snap.clock.running).toBe('B');
+  });
+
   it('修改名字写进进度', async () => {
     const res = await app.inject({ method: 'POST', url: '/api/progress/name', payload: { name: '大帅' } });
     expect(res.statusCode).toBe(200);

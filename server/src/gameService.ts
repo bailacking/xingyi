@@ -17,10 +17,13 @@ import {
   type ReviewPoint,
   type ReviewResult,
   type RoomSeat,
+  type TimeControl,
   type Vertex,
 } from '@xingyi/shared';
 import { Game } from '@xingyi/rules';
 import { Room, RoomError, makeRoomCode } from './room.js';
+import { DEFAULT_TIME_CONTROL } from './clock.js';
+import { handicapKomi, handicapStones } from './handicap.js';
 import { detectHardware, offlineMove, type CheckResult, type EngineManager } from '@xingyi/engine';
 import {
   applyJumpExam,
@@ -59,6 +62,10 @@ export interface CreateMatchOptions {
   playerColor?: Color;
   /** 跳档考核：目标级 */
   examLevel?: number | null;
+  /** 让子数（2~9；0/1 = 不让） */
+  handicap?: number;
+  /** 时间制；不传 = 默认 10 分 + 3×30 秒，显式 null = 不限时 */
+  timeControl?: TimeControl | null;
 }
 
 export interface Settlement {
@@ -93,6 +100,7 @@ export class GameService extends EventEmitter {
   private readonly paths: DataPaths;
   private readonly matches = new Map<string, Match>();
   private readonly rooms = new Map<string, Room>();
+  private clockTimer: ReturnType<typeof setInterval> | null = null;
   cfg: AppConfig;
   progress: Progress;
   ranks: RankTable;
@@ -129,10 +137,38 @@ export class GameService extends EventEmitter {
 
   async init(): Promise<void> {
     fs.mkdirSync(this.paths.games, { recursive: true });
+    this.startClockTicker();
     if (this.engine.configured) {
       // 后台启动，不阻塞 HTTP 服务（用户能先看到界面与报错）
       void this.engine.start().catch(() => undefined);
     }
+  }
+
+  /** 每秒推一次带计时的快照；超时直接判负并按模式结算 */
+  private startClockTicker(): void {
+    if (this.clockTimer) return;
+    this.clockTimer = setInterval(() => {
+      for (const m of this.matches.values()) {
+        if (!m.clock || m.game.status !== 'playing') continue;
+        const flagged = m.clock.tick();
+        if (flagged) {
+          m.applyTimeout(flagged);
+          m.aiThinking = false;
+          m.touch();
+          m.settlement = this.settle(m);
+          this.emitGame(m);
+          continue;
+        }
+        this.emitGame(m);
+      }
+    }, 1000);
+    // 别让计时循环把进程钉死（服务正常退出时允许结束）
+    this.clockTimer.unref?.();
+  }
+
+  dispose(): void {
+    if (this.clockTimer) clearInterval(this.clockTimer);
+    this.clockTimer = null;
   }
 
   // ------------------------------------------------------------ 配置
@@ -173,7 +209,9 @@ export class GameService extends EventEmitter {
     const caps = CAPS[mode];
     const requestedSize = opts.size ?? 19;
     const size: BoardSize = BOARD_SIZES.includes(requestedSize) ? requestedSize : 19;
-    const komi = Number.isFinite(opts.komi) ? Number(opts.komi) : DEFAULT_KOMI;
+    const handicap = Math.max(0, Math.min(9, Math.round(Number(opts.handicap ?? 0))));
+    const baseKomi = Number.isFinite(opts.komi) ? Number(opts.komi) : DEFAULT_KOMI;
+    const komi = handicapKomi(handicap, baseKomi);
     const playerColor: Color = opts.playerColor === 'W' ? 'W' : 'B';
 
     let level: number;
@@ -201,6 +239,10 @@ export class GameService extends EventEmitter {
       opponent = this.engine.ready ? 'katago' : 'offline';
     }
 
+    // 时间制：显式传 null 才是不限时，不传按默认 10 分 + 3×30 秒
+    const timeControl: TimeControl | null =
+      opts.timeControl === null ? null : (opts.timeControl ?? DEFAULT_TIME_CONTROL);
+
     const match = new Match({
       id: randomUUID().slice(0, 8),
       mode,
@@ -211,11 +253,24 @@ export class GameService extends EventEmitter {
       opponent,
       isPlacement,
       examLevel,
+      handicap: handicap >= 2 ? handicap : 0,
+      // 让子局：黑先摆子，白先走（Game 会根据 setup 自动把 toPlay 定成白）
+      setup: handicap >= 2 ? { black: handicapStones(size, handicap), white: [] } : undefined,
+      timeControl,
     });
     this.matches.set(match.id, match);
     this.trimMatches();
     if (match.aiToMove()) void this.runAi(match);
     return match;
+  }
+
+  /** 唯一的对局推送出口：先把计时器对齐到当前轮次，再推快照 */
+  private emitGame(m: Match): void {
+    if (m.clock) {
+      if (m.game.status === 'playing') m.clock.switchTo(m.game.toPlay);
+      else m.clock.pause();
+    }
+    this.emit('game', m.snapshot());
   }
 
   getMatch(id: string): Match {
@@ -252,7 +307,7 @@ export class GameService extends EventEmitter {
     if (!res.ok) throw new ServiceError(400, res.message ?? '这一手不能下');
     m.redo = [];
     m.touch();
-    this.emit('game', m.snapshot());
+    this.emitGame(m);
     if (m.aiToMove()) void this.runAi(m);
     return m;
   }
@@ -273,7 +328,7 @@ export class GameService extends EventEmitter {
     m.score = undefined;
     m.settlement = undefined;
     m.touch();
-    this.emit('game', m.snapshot());
+    this.emitGame(m);
     if (m.aiToMove()) void this.runAi(m);
     return m;
   }
@@ -288,7 +343,7 @@ export class GameService extends EventEmitter {
     if (!res.ok) throw new ServiceError(400, '这一手已经不能重做了');
     m.redo.shift();
     m.touch();
-    this.emit('game', m.snapshot());
+    this.emitGame(m);
     if (m.aiToMove()) void this.runAi(m);
     return m;
   }
@@ -303,7 +358,7 @@ export class GameService extends EventEmitter {
     m.game.stop();
     m.aiThinking = false;
     m.touch();
-    this.emit('game', m.snapshot());
+    this.emitGame(m);
     return m;
   }
 
@@ -313,7 +368,7 @@ export class GameService extends EventEmitter {
     m.applyResign(m.playerColor);
     m.touch();
     m.settlement = this.settle(m);
-    this.emit('game', m.snapshot());
+    this.emitGame(m);
     return m;
   }
 
@@ -329,7 +384,7 @@ export class GameService extends EventEmitter {
       m.result = { winner: null, reason: 'quit', text: '已退出（不计入进度）' };
     }
     m.touch();
-    this.emit('game', m.snapshot());
+    this.emitGame(m);
     return m;
   }
 
@@ -338,7 +393,7 @@ export class GameService extends EventEmitter {
   private async runAi(m: Match): Promise<void> {
     if (m.aiThinking) return;
     m.aiThinking = true;
-    this.emit('game', m.snapshot());
+    this.emitGame(m);
     try {
       let vertex: Vertex = PASS;
       let resign = false;
@@ -376,7 +431,7 @@ export class GameService extends EventEmitter {
     } finally {
       m.aiThinking = false;
       m.touch();
-      this.emit('game', m.snapshot());
+      this.emitGame(m);
     }
   }
 
@@ -395,7 +450,7 @@ export class GameService extends EventEmitter {
     m.applyScore(detail, text);
     m.touch();
     m.settlement = this.settle(m);
-    this.emit('game', m.snapshot());
+    this.emitGame(m);
     return m;
   }
 
@@ -481,6 +536,7 @@ export class GameService extends EventEmitter {
         komi: m.game.komi,
         moves: m.moveList(),
         setup: { black: m.game.setup.black, white: m.game.setup.white },
+        handicap: m.game.handicap,
         playerBlack: m.playerColor === 'B' ? this.progress.playerName : `KataGo ${levelCn(m.level)}`,
         playerWhite: m.playerColor === 'W' ? this.progress.playerName : `KataGo ${levelCn(m.level)}`,
         result: this.reSgf(m.result),

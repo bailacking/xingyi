@@ -135,6 +135,96 @@ describe('自杀判定的边界（回归：刺/接被误判）', () => {
   });
 });
 
+describe('着法名（只标确定的几种）', () => {
+  const size = 9;
+  const at = (x: number, y: number): number => y * size + x;
+  const play = (
+    black: [number, number][],
+    white: [number, number][],
+    move: [number, number],
+  ): string | undefined => {
+    const g = new Game({
+      size,
+      komi: 7.5,
+      toPlay: 'B',
+      setup: { black: black.map(([x, y]) => at(x, y)), white: white.map(([x, y]) => at(x, y)) },
+    });
+    const res = g.play('B', at(move[0], move[1]));
+    expect(res.ok).toBe(true);
+    return g.moves.at(-1)?.name;
+  };
+
+  it('提子 / 打吃', () => {
+    expect(
+      play(
+        [
+          [3, 4],
+          [5, 4],
+          [4, 3],
+        ],
+        [[4, 4]],
+        [4, 5],
+      ),
+    ).toBe('提子');
+    expect(
+      play(
+        [
+          [3, 4],
+          [4, 3],
+        ],
+        [[4, 4]],
+        [5, 4],
+      ),
+    ).toBe('打吃');
+  });
+
+  it('接：一手连上两块自己的棋', () => {
+    expect(
+      play(
+        [
+          [2, 4],
+          [4, 4],
+        ],
+        [],
+        [3, 4],
+      ),
+    ).toBe('接');
+  });
+
+  it('长 / 立', () => {
+    expect(
+      play(
+        [
+          [2, 4],
+          [3, 4],
+        ],
+        [],
+        [4, 4],
+      ),
+    ).toBe('长');
+    expect(
+      play(
+        [
+          [2, 2],
+          [2, 3],
+        ],
+        [],
+        [2, 1],
+      ),
+    ).toBe('立');
+  });
+
+  it('跳 / 飞 / 尖', () => {
+    expect(play([[2, 4]], [], [4, 4])).toBe('跳');
+    expect(play([[2, 3]], [], [4, 4])).toBe('飞');
+    expect(play([[3, 3]], [], [4, 4])).toBe('尖');
+  });
+
+  it('远隔的一手不硬贴名字', () => {
+    expect(play([], [], [4, 4])).toBeUndefined();
+  });
+});
+
 describe('劫与 superko', () => {
   it('简单劫：回提被位置超劫禁止', () => {
     const g = new Game({

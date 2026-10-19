@@ -64,6 +64,7 @@ async function main(): Promise<void> {
 
   const shutdown = (): void => {
     stopBeacon();
+    service.dispose();
     void service.engine.stop().finally(() => void app.close().finally(() => process.exit(0)));
   };
   process.on('SIGINT', shutdown);

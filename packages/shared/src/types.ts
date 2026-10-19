@@ -112,6 +112,8 @@ export interface MoveRecord {
   vertex: Vertex;
   /** 本手提掉的对方棋子下标 */
   captured: Vertex[];
+  /** 着法名（提子/打吃/接/长/立/跳/飞/尖；拿不准就没有） */
+  name?: string;
 }
 
 export type GameStatus = 'playing' | 'scoring' | 'finished';
@@ -141,6 +143,26 @@ export interface ScoreDetail {
   whiteTerritory: Vertex[];
 }
 
+/** 时间制：主时间 + 读秒（包干时 periods = 0） */
+export interface TimeControl {
+  mainSec: number;
+  byoYomiSec: number;
+  periods: number;
+}
+
+export interface ClockView {
+  /** 当前这一段还剩多少毫秒（主时间或本次读秒） */
+  blackMs: number;
+  whiteMs: number;
+  /** 还剩几期读秒 */
+  periods: { B: number; W: number };
+  /** 正在走谁的表；null = 暂停 */
+  running: Color | null;
+  /** 已经进入读秒 */
+  inByoYomi: { B: boolean; W: boolean };
+  control: TimeControl;
+}
+
 export interface GameSnapshot {
   id: string;
   mode: Mode;
@@ -164,6 +186,8 @@ export interface GameSnapshot {
   aiThinking?: boolean;
   /** 还有被悔掉的棋可以重做 */
   canRedo?: boolean;
+  /** 计时；null/缺省 = 不限时 */
+  clock?: ClockView | null;
   createdAt: string;
   updatedAt: string;
 }

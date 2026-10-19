@@ -8,7 +8,8 @@ import type {
   ScoreDetail,
   Vertex,
 } from '@xingyi/shared';
-import { PASS } from '@xingyi/shared';
+import { PASS, type TimeControl } from '@xingyi/shared';
+import { Clock } from './clock.js';
 
 export type Opponent = 'katago' | 'offline' | 'human';
 
@@ -28,6 +29,8 @@ export interface MatchInit {
   isPlacement?: boolean;
   /** 跳档考核局 */
   examLevel?: number | null;
+  /** 时间制；null = 不限时 */
+  timeControl?: TimeControl | null;
 }
 
 /** 一局 = 规则状态 + 模式元信息。规则的事交给 @xingyi/rules。 */
@@ -45,6 +48,8 @@ export class Match {
   updatedAt: string;
 
   aiThinking = false;
+  /** 计时器；null = 不限时 */
+  readonly clock: Clock | null;
   /** 悔棋之后被撤回的着法，按顺序重做 */
   redo: { color: Color; vertex: Vertex }[] = [];
   result?: GameResult;
@@ -66,8 +71,11 @@ export class Match {
       komi: init.komi,
       handicap: init.handicap,
       setup: init.setup,
-      toPlay: init.toPlay ?? 'B',
+      // 不传就交给规则层判断（摆黑子且无白子 = 白先走，让子局就靠这个）
+      toPlay: init.toPlay,
     });
+    this.clock = init.timeControl ? new Clock(init.timeControl) : null;
+    this.clock?.start(this.game.toPlay);
     this.createdAt = new Date().toISOString();
     this.updatedAt = this.createdAt;
   }
@@ -101,6 +109,13 @@ export class Match {
     return this.result;
   }
 
+  applyTimeout(loser: Color): GameResult {
+    this.game.status = 'finished';
+    const text = `${loser === 'B' ? '黑' : '白'}超时，${loser === 'B' ? '白' : '黑'}胜`;
+    this.result = { winner: opposite(loser), reason: 'timeout', text };
+    return this.result;
+  }
+
   applyQuit(loser: Color): GameResult {
     this.game.status = 'finished';
     const text = `${loser === 'B' ? '白' : '黑'}中盘胜（对方退出）`;
@@ -128,6 +143,7 @@ export class Match {
       score: this.score,
       aiThinking: this.aiThinking,
       canRedo: this.redo.length > 0,
+      clock: this.clock?.view() ?? null,
       createdAt: this.createdAt,
       updatedAt: this.updatedAt,
     };

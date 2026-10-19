@@ -8,6 +8,7 @@ import {
 } from '@xingyi/shared';
 import { Board, opposite } from './board.js';
 import { scoreArea, scoreText, type ScoreDetailLocal } from './score.js';
+import { moveName } from './shape.js';
 
 export type PlayError =
   | 'finished'
@@ -113,8 +114,15 @@ export class Game {
       this.toPlay = opposite(color);
       return [];
     }
+    // 记着法名前先留一份盘面（place 是原地改的）
+    const before = this.board.clone();
     const res = this.board.place(color, vertex);
-    this.moves.push({ color, vertex, captured: res.captured });
+    this.moves.push({
+      color,
+      vertex,
+      captured: res.captured,
+      name: res.suicide ? undefined : moveName(before, this.board, color, vertex, res.captured.length),
+    });
     this.captures[opposite(color)] += res.captured.length;
     this.positions.add(this.board.fingerprint());
     this.lastMove = vertex;

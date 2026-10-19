@@ -86,6 +86,8 @@ export const api = {
     level?: number;
     playerColor?: 'B' | 'W';
     examLevel?: number | null;
+    handicap?: number;
+    timeControl?: { mainSec: number; byoYomiSec: number; periods: number } | null;
   }) => req<GameResponse>('/api/game', { method: 'POST', body: JSON.stringify(opts) }),
   getGame: (id: string) => req<GameResponse>(`/api/game/${id}`),
   move: (id: string, vertex: number) =>

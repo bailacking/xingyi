@@ -173,6 +173,8 @@ export interface SgfExportInput {
   komi: number;
   moves: { color: Color; vertex: Vertex }[];
   setup?: { black: Vertex[]; white: Vertex[] };
+  /** 让子数（>=2 时输出 HA） */
+  handicap?: number;
   playerBlack?: string;
   playerWhite?: string;
   result?: string | null;
@@ -193,6 +195,7 @@ export function toSgf(input: SgfExportInput): string {
   if (input.playerBlack) head.push(`PB[${escapeValue(input.playerBlack)}]`);
   if (input.playerWhite) head.push(`PW[${escapeValue(input.playerWhite)}]`);
   if (input.result) head.push(`RE[${escapeValue(input.result)}]`);
+  if (input.handicap && input.handicap >= 2) head.push(`HA[${input.handicap}]`);
   if (input.setup?.black.length) head.push(`AB${input.setup.black.map((v) => `[${vertexToSgf(input.size, v)}]`).join('')}`);
   if (input.setup?.white.length) head.push(`AW${input.setup.white.map((v) => `[${vertexToSgf(input.size, v)}]`).join('')}`);
   if (input.comment) head.push(`C[${escapeValue(input.comment)}]`);

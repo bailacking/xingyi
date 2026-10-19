@@ -44,7 +44,16 @@ export function registerRoutes(app: FastifyInstance, service: GameService): void
   app.post('/api/engine/restart', async () => service.restartEngine());
 
   app.post('/api/game', async (req) => {
-    const b = body<{ mode?: Mode; size?: 9 | 13 | 19; komi?: number; level?: number; playerColor?: 'B' | 'W'; examLevel?: number }>(req);
+    const b = body<{
+      mode?: Mode;
+      size?: 9 | 13 | 19;
+      komi?: number;
+      level?: number;
+      playerColor?: 'B' | 'W';
+      examLevel?: number;
+      handicap?: number;
+      timeControl?: { mainSec: number; byoYomiSec: number; periods: number } | null;
+    }>(req);
     const mode = (b.mode ?? 'free') as Mode;
     const match = service.createMatch({
       mode,
@@ -53,6 +62,8 @@ export function registerRoutes(app: FastifyInstance, service: GameService): void
       level: b.level,
       playerColor: b.playerColor,
       examLevel: b.examLevel ?? null,
+      handicap: b.handicap,
+      timeControl: b.timeControl,
     });
     return {
       ...snapshotOf(match),

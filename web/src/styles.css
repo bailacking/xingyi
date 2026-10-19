@@ -1063,3 +1063,47 @@ select:focus {
   width: 100%;
   height: 100%;
 }
+
+/* 计时钟 */
+.clock-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  margin: 0 0 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-alt);
+  font-size: 13px;
+}
+.clock {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.clock b {
+  font-weight: 600;
+  color: var(--text);
+}
+.clock.is-running {
+  border-color: var(--accent);
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.clock.is-low .clock-time {
+  color: var(--danger);
+}
+.clock-time {
+  font-size: 15px;
+  letter-spacing: 0.04em;
+}
+.clock-byo {
+  font-size: 11px;
+  color: var(--danger);
+  letter-spacing: 0.1em;
+}
