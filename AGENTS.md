@@ -3,7 +3,7 @@
 > **读者**：接手这个仓库的 AI 编程助手（以及偶尔看它的人）。
 > **权威顺序**：本文件 > 代码 > `docs/` > `docs/archive/PLAN-v2.5.md`（历史设计稿，已弃用，只作考古）。
 > **维护义务**：改动涉及状态、参数、契约、坑位时，**同一个 commit 里更新本文件**。本文件过期比没有更糟。
-> **最后核对**：2026-10-19 23:40 · 168 项测试通过 · B-001~B-003 已修（摆棋擦除/点已有子提示/SGF 让子 HA）。
+> **最后核对**：2026-11-12 22:05 · 164 项测试通过 · 题库（100 道提子题 + 生成器 + 测级/跟做）已整体移除（见 §2 教学说明）。
 
 ---
 
@@ -11,14 +11,14 @@
 
 1. 读 §2「当前状态」——确认你要做的事**是否已经做了**。设计稿里有的东西，代码里可能没有；反之也有偏差。
 2. 读 §6「不变量」与 §15「已踩过的坑」——这些是代价换来的，别重犯。
-3. 改完必须跑通：`npm test`（168 项）+ `npm run typecheck`。
+3. 改完必须跑通：`npm test`（164 项）+ `npm run typecheck`。
 4. 能跑 ≠ 对。涉及界面的改动，用 §16.4 的无头浏览器截图目检；涉及引擎的，用真 katago 跑一次（本机已装，见 §9.1）。
 
 ---
 
 ## 1. 项目定位
 
-**一句话**：在本机跑 KataGo 的围棋软件，以「练」为主线——修习（升级）、自在（自由）、手谈（联机）三套规则世界，外加摆棋分析、教学题库、可深度换主题。
+**一句话**：在本机跑 KataGo 的围棋软件，以「练」为主线——修习（升级）、自在（自由）、手谈（联机）三套规则世界，外加摆棋分析、定式练习、可深度换主题。
 
 **性质**：开源个人项目（MIT）+ 简历作品。
 
@@ -26,7 +26,7 @@
 
 | # | 约束 | 具体含义 |
 |---|---|---|
-| H1 | 零版权风险 | 题库/素材/音效必须能证明来源与授权；只用 CC0 / 公有领域 / 自建 |
+| H1 | 零版权风险 | 素材/棋谱/音效必须能证明来源与授权；只用 CC0 / 公有领域 / 自建 |
 | H2 | 别人必须能跑起来 | 不假设下载者有 NVIDIA 卡；引擎与权重用户自装，程序做环境自检 + 中文引导 |
 
 **非目标**：不做在线对弈平台（不接 OGS/KGS/野狐）· 不做通用 SGF 编辑器 · 不做手机原生 App · 不做模型训练/自对弈 · 不做日本规则。
@@ -44,12 +44,14 @@
 | **自在**（free） | 可玩 | 9/13/19 路对局；AI 或离线对手；悔棋、停一手、认输、终局数子；SGF 导入/导出；分析面板（候选点 + 胜率 + 目差）；形势图（F）；候选变化幽灵子；点一颗子整块标死；**复盘（分块进度条 + 可随时中断 + 黑白方分色统计，19 路 200 手 ≈ 43 秒）** | 自由摆子编辑（AB/AW/AE 拖拽摆放）；目差曲线；沿分支逐手跳转；"假设对手水平"滑杆 |
 | **修习**（ranked） | 可玩（等级表已实测） | 3 盘定级；暂定级；升降级（阈值按局部步长）；**跳档考核（升 1/2 级）**；防刷；`progress.json` + `.bak`；评级沙盘；**进度导出 JSON** | 逐级独立校准误差仍 ±150~480 |
 | **手谈**（lan） | 初版可用 | 房间码 6 位、创建/加入、观战、**状态走 WS 推送（聊天同帧）**、悔棋需同意、认输、**房间棋钟（主时间 + 读秒，可选 4 档时间制）、超时判负**、**让子 2~9 子（黑子开局摆好、白先走、贴 0.5）、房主在等人阶段可改时间制与让子**、UDP 局域网自动发现、**扫码入座二维码**、**重开页面自动回座**、WS 断开时 6s 兜底轮询 + **断线提示条**、**观战者看到自己的角色与两台钟** | 开局后不能改设置（需重开房）；让子只在建房/等人阶段定 |
-| 教学 / 题库 | 初版可用 | 2 课跟做（提子/角上的气）、**100 道自建提子题**（`scripts/gen-tsumego.mjs` 生成并用规则引擎逐题验算）、10 题测级（从题库均匀抽）、题库数据有独立测试守着、**6 个定式跟做（W1，每步都用规则引擎验过合法）** | 更高难度题库（手筋/死活）、AI 辅助判题 |
+| 教学 / 定式 | 初版可用 | **6 个定式跟做（W1，每步都用规则引擎验过合法）**；教学页**只剩这一个 tab** | 题库整体待重做（旧的 100 道一步打吃题已删，见下）；AI 辅助判题 |
 | **主题** | 四套内置 + 可导入 | `suxue` 素雪（默认浅色）/ `xuanmo` 玄墨（默认深色）/ `qingzhu` 青竹 / `yinxing` 银杏；即时切换 + 5 秒撤销；预览卡片；**zip 导入导出（只收 `theme.json` + 图片，禁 CSS/JS）**；token 白名单逐项校验 | 主题包 `assets/` 图片能存能取，但界面还没消费（棋盘贴图/装饰层）；`style.css` 白名单**已永久放弃**（见 §12） |
 | Electron | 未开始 | — | 换壳、窗口、图标、启动画面 |
 | 引擎 | 已接入真机 | GTP 串行客户端、分析流、三后端探测、五步自检、进程守护、离线对手 | 摆棋用的 `playoutDoublingAdvantage` 滑杆 |
 
-**测试规模**：168 项 / 11 个文件（rules 30 · server API 23 · room 计时与设置 15 · clock 10 · engine 14 · rating 25 · sgf 7 · joseki 14 · 题库数据 3 · review 分块 4 · **主题包 23**）。
+**测试规模**：164 项 / 10 个文件（rules 30 · server API 22 · room 计时与设置 15 · clock 10 · engine 14 · rating 25 · sgf 7 · joseki 14 · review 分块 4 · **主题包 23**）。
+
+> **2026-11-12 删掉的东西（别再凭记忆写回来）**：题库 `data/tsumego/`、生成器 `scripts/gen-tsumego.mjs`、`server/test/tsumego-data.test.ts`、`/api/tsumego*` 三条路由、`gameService` 的 `loadTsumego/listTsumego/getTsumego/tryTsumego` 与 `TsumegoProblem` 接口、`web/src/api.ts` 的 `tsumego*`、LearnView 的「跟做 / 题库 / 测级」三个 tab。理由：100 道全是一步打吃题，没有教学价值。教学页现在只有一个 tab（定式）。
 
 **本机引擎现状**（`data/config.json`，不入库）：KataGo 1.18.2 CUDA + 主模型 + human 模型，显存占用 985 MB / 4096 MB。换机器时这份配置不存在 → 引擎状态为 `unconfigured`，自在模式自动退化为离线对手，修习模式返回 409。
 
@@ -121,7 +123,7 @@ web/src/
   board/Board.tsx           SVG 棋盘（几何、坐标、虚影、形势图、死子叉）
   modes/GameView.tsx        对局界面（三模式共用，靠 CAPS 分叉）
   modes/Menu.tsx            主界面
-  modes/LearnView.tsx       教学：跟做 / 题库 / 定式 / 测级 四个 tab
+  modes/LearnView.tsx       教学：定式跟做（唯一的 tab）
   panels/AnalysisPanel.tsx  候选点列表 + 胜率/目差 + 深入
   panels/MoveList.tsx       手数列表
   Settings.tsx              引擎三步向导 + 界面/音效/沙盘 + 主题面板（导入导出）
@@ -412,8 +414,6 @@ node scripts/fit-ranks.mjs data/calibration/<stamp>.jsonl    # 保序回归 + �
 | POST | `/api/game/:id/review/cancel` | 中断复盘（保留已算出的部分，下次轮询返回 `cancelled:true`） |
 | POST | `/api/game/setup` | 摆子建局：`{size, grid, toPlay, komi}`（分析走 loadsgf） |
 | GET | `/api/progress/export` | 导出 JSON（存档 + 等级表） |
-| POST | `/api/tsumego/:id/try` | 判题：提子数达到 `capture` 即正解 |
-| GET | `/api/tsumego` / `/api/tsumego/:id` | 题库列表 / 单题（不含答案） |
 | POST | `/api/room` | 开房间（6 位码，创建者执黑）；可选 `timeControl`（`null` = 不限时，不传 = 10 分 + 3×30 秒）、`handicap`（2~9） |
 | POST | `/api/room/:code/settings` | 房主改设置 `{clientId, timeControl?, handicap?}`；仅 `waiting` 阶段，否则 400 |
 | POST | `/api/room/:code/join` | 加入（第三人是观众） |
@@ -520,7 +520,7 @@ node scripts/fit-ranks.mjs data/calibration/<stamp>.jsonl    # 保序回归 + �
 | `data/games/*.sgf` | ✗ | 对局棋谱（导出/复盘） |
 | `data/calibration/*.jsonl` | ✗ | 校准原始对局（每行一局） |
 | `data/themes/<id>/theme.json` | 内置 ✓ / 导入 ✗ | 四套内置主题（导出源）；导入的主题也落这里，由 `.gitignore` 白名单挡在库外 |
-| `data/{tsumego,joseki}/` | ✓ | 题库 / 定式数据 |
+| `data/joseki/` | ✓ | 定式数据（6 条，19 路角部） |
 | `backups/progress-YYYYMMDD.json` | ✗ | 每日备份，留 10 份 |
 
 `config.ui` 关键字段：`themeId` · `sound` · `soundPack` · `soundVolume` · `hoverMark` · `showOwnership` · `analysisDepth`(quick/standard/deep) · `playerColor`。
@@ -536,7 +536,7 @@ node scripts/fit-ranks.mjs data/calibration/<stamp>.jsonl    # 保序回归 + �
 | **P1** | 自在：摆棋分析 | 完成（摆子编辑/分析、曲线、跳转、假设对手）；缺变化树编辑 |
 | **P2** | 对 AI 下棋 + 复盘 | 完成（逐手好/一般/失误 + 曲线 + 跳转 + 输棋自动复盘 + 着法名 + 计时/让子） |
 | **P3** | 修习：评级全流程 | 完成（等级表实测、跳档考核、导出） |
-| **P4** | 教学 + 题库 | 2 课 + **100 题** + 测级 + **6 个定式跟做（W1）**；缺定式练习扩展与更高难度题库 |
+| **P4** | 教学（定式） | **6 个定式跟做（W1）**持续可用；题库/跟做/测级已于 2026-11-12 整体移除，重做时另立任务卡 |
 | **P5** | 手谈：局域网联机 | 房间码/加入/观战/聊天/悔棋同意/超时/自动发现/二维码/WS 推送/自动回座/**房间棋钟 + 超时判负 + 观战提示 + 让子 + 房主开前改设置**；缺开局后改设置 |
 | **P6** | 主题：四套内置 + zip 导入导出 | 完成（4 套主题、棋子高光 token 化、预览卡片、导入导出、token 白名单、恶意包拒绝）；缺 `assets/` 渲染与主题删除 |
 | **P7** | Electron 换壳 | 未开始 |
@@ -546,7 +546,7 @@ node scripts/fit-ranks.mjs data/calibration/<stamp>.jsonl    # 保序回归 + �
 一个窗口只做一张卡：W1 定式练习 / W2 手谈计时 / W3 复盘深化 / W4 主题系统 / W5 19 路校准 / W6 桌面壳+发布。
 W1~W4 已完成，剩 W5（19 路校准）、W6（桌面壳 + 发布），**当前暂缓**：先集中修 BUG，问题登记在 [`docs/已知问题.md`](已知问题.md)。**别在一个窗口里连做多张**——上下文一长，token 全花在回忆上。
 
-**已知未收口的小事**：`THIRD-PARTY.md` 里 Sabaki 相关条目已过期（现在零 Sabaki 依赖，棋盘与 SGF 都自研），P8 前重写；`docs/题库规范.md`、`docs/联机协议.md` 未写。
+**已知未收口的小事**：`THIRD-PARTY.md` 里 Sabaki 相关条目已过期（现在零 Sabaki 依赖，棋盘与 SGF 都自研），P8 前重写；`docs/联机协议.md` 未写。
 
 ---
 

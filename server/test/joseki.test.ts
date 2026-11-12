@@ -12,7 +12,7 @@ import { checkJoseki, getJoseki, listJoseki, loadJoseki, validateJoseki } from '
 import { dataPaths } from '../src/paths.js';
 
 /**
- * 定式是**数据**，和题库一样会手改，所以这里对仓库里真正发货的那份逐手验算：
+ * 定式是**数据**，会手改，所以这里对仓库里真正发货的那份逐手验算：
  * 每一步都得在 19 路空盘上合法，判手得能分出对错，提示要是「第 N 手应下 X」。
  */
 
