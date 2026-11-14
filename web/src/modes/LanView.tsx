@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Board } from '../board/Board';
 import { QrCode } from '../panels/QrCode';
-import { api, ApiError, useSocket, type Bootstrap } from '../api';
+import { api, ApiError, useSocket } from '../api';
 import { playBell, playStone } from '../sound';
 import type { Color, RoomChat, RoomView } from '../types';
 import '../styles/lan.css';
 
 interface LanViewProps {
-  bootstrap: Bootstrap;
-  onBack: () => void;
+  hostName?: string;
+  hoverMark?: 'square' | 'ghost';
+  onBack?: () => void;
 }
 
 const CLIENT_KEY = 'xingyi.clientId';
@@ -65,8 +66,8 @@ const fmtClock = (ms: number): string => {
 
 function clientId(): string {
   let id = localStorage.getItem(CLIENT_KEY);
-  if (!id) {
-    id = crypto.randomUUID().slice(0, 12);
+  if (!id || !/^[a-f0-9]{32}$/.test(id)) {
+    id = Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, '0')).join('');
     localStorage.setItem(CLIENT_KEY, id);
   }
   return id;
@@ -78,7 +79,8 @@ const STATUS_TEXT: Record<RoomView['status'], string> = {
   finished: '已结束',
 };
 
-export function LanView({ bootstrap, onBack }: LanViewProps) {
+export function LanView({ hostName, hoverMark = 'square', onBack }: LanViewProps) {
+  const [name, setName] = useState(() => hostName ?? localStorage.getItem('xingyi.lanName') ?? '棋友');
   const me = useMemo(() => clientId(), []);
   const [room, setRoom] = useState<RoomView | null>(null);
   const [myColor, setMyColor] = useState<Color | 'spectator'>('spectator');
@@ -92,29 +94,33 @@ export function LanView({ bootstrap, onBack }: LanViewProps) {
   const [editHandicap, setEditHandicap] = useState(0);
   const [text, setText] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [copyMessage, setCopyMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [reconnect, setReconnect] = useState(false);
   const [discovering, setDiscovering] = useState(false);
   const [found, setFound] = useState<{ code: string; size: number; host: string; port: number; status?: string }[]>([]);
   // 手谈的二维码必须用局域网 IP：电脑上打开是 127.0.0.1，手机扫了会扫到它自己
-  const [lanHost, setLanHost] = useState<string | null>(null);
+  const [lanAddress, setLanAddress] = useState<{ host: string; port: string } | null>(null);
   useEffect(() => {
-    const loopback = ['127.0.0.1', 'localhost', '::1'].includes(location.hostname);
+    const loopback = ['127.0.0.1', 'localhost', '[::1]'].includes(location.hostname);
     if (!loopback) {
-      setLanHost(location.hostname);
+      setLanAddress({ host: location.hostname, port: location.port });
       return;
     }
     void api
       .netInfo()
-      .then((res) => setLanHost(res.addresses[0] ?? null))
-      .catch(() => setLanHost(null));
+      .then((res) => {
+        if (res.addresses[0]) setLanAddress({ host: res.addresses[0], port: String(res.port ?? location.port) });
+      })
+      .catch(() => undefined);
   }, []);
   const joinUrl = useMemo(() => {
     if (!room) return '';
-    const port = location.port ? `:${location.port}` : '';
-    const host = lanHost ?? location.hostname;
-    return `http://${host}${port}/?view=lan&room=${room.code}`;
-  }, [room?.code, lanHost]);
+    const host = lanAddress?.host ?? location.hostname;
+    const port = lanAddress?.port || location.port;
+    return `http://${host}${port && port !== '80' ? ':' + port : ''}/?view=lan&room=${room.code}`;
+  }, [room?.code, lanAddress]);
+  const inviteRef = useRef<HTMLDetailsElement>(null);
   const roomRef = useRef<RoomView | null>(null);
   roomRef.current = room;
 
@@ -147,7 +153,7 @@ export function LanView({ bootstrap, onBack }: LanViewProps) {
     const payload = e.data as { room?: RoomView; chat?: RoomChat[] };
     if (!payload?.room) return;
     ingest({ room: payload.room, chat: payload.chat }, true);
-  });
+  }, room?.code);
 
   // WS 刚建立前 connected 也是 false，别在进房间的第一帧闪一条「连接断开」
   const [everConnected, setEverConnected] = useState(false);
@@ -195,7 +201,7 @@ export function LanView({ bootstrap, onBack }: LanViewProps) {
     if (!saved || roomRef.current) return;
     setReconnect(true);
     api
-      .roomJoin(saved, { clientId: me, name: bootstrap.progress.playerName })
+      .roomJoin(saved, { clientId: me, name })
       .then((res) => {
         setRoom(res.room);
         setMyColor(res.color);
@@ -215,7 +221,7 @@ export function LanView({ bootstrap, onBack }: LanViewProps) {
       const res = await api.roomCreate({
         size,
         komi: 7.5,
-        name: bootstrap.progress.playerName,
+        name,
         clientId: me,
         timeControl: preset.control,
         handicap,
@@ -253,14 +259,15 @@ export function LanView({ bootstrap, onBack }: LanViewProps) {
     }
   };
 
-  const join = async (target?: string): Promise<void> => {    const targetCode = (target ?? code).trim().toUpperCase();
-    if (targetCode.length < 4) {
+  const join = async (target?: string): Promise<void> => {
+    const targetCode = (target ?? code).trim().toUpperCase();
+    if (!/^[A-Z0-9]{6}$/.test(targetCode)) {
       setError('房间码是 6 位字母数字');
       return;
     }
     setBusy(true);
     try {
-      const res = await api.roomJoin(targetCode, { name: bootstrap.progress.playerName, clientId: me });
+      const res = await api.roomJoin(targetCode, { name, clientId: me });
       setRoom(res.room);
       setMyColor(res.color);
       setChat([]);
@@ -313,7 +320,13 @@ export function LanView({ bootstrap, onBack }: LanViewProps) {
   };
 
   const leave = async (): Promise<void> => {
+    setCopyMessage('');
     localStorage.removeItem(ROOM_KEY);
+    const url = new URL(location.href);
+    if (url.searchParams.has('room')) {
+      url.searchParams.delete('room');
+      history.replaceState(null, '', url);
+    }
     const current = roomRef.current;
     if (current) await act('leave').catch(() => undefined);
     setRoom(null);
@@ -322,19 +335,26 @@ export function LanView({ bootstrap, onBack }: LanViewProps) {
   };
 
   const myTurn = Boolean(room && room.status === 'playing' && room.toPlay === myColor);
-  const boardSize = room?.size ?? size;
   const isSpectator = myColor === 'spectator';
   const clock = room?.clock ?? null;
 
   return (
-    <div className="game">
+    <div className={room ? 'game screen-game lan-room' : 'lan-lobby'}>
       <div className="board-column">
         <div className="topbar">
-          <button className="linkish" onClick={() => void leave().then(onBack)}>
-            ← 返回
-          </button>
+          {(onBack || room) && (
+            <button className="linkish" onClick={() => void leave().then(onBack)}>
+              {onBack ? "← 返回" : "离开房间"}
+            </button>
+          )}
           <span className="brand">星弈</span>
           <span className="badge">手谈</span>
+          {!hostName && !room && (
+            <input type="text" className="lan-nickname" aria-label="棋友昵称" maxLength={12} value={name} onChange={(event) => {
+              setName(event.target.value);
+              localStorage.setItem('xingyi.lanName', event.target.value);
+            }} />
+          )}
           <span className="grow" />
           {room ? (
             <>
@@ -342,10 +362,13 @@ export function LanView({ bootstrap, onBack }: LanViewProps) {
               <button
                 className="btn"
                 onClick={() => {
-                  void navigator.clipboard?.writeText(`${location.origin} 房间码 ${room.code}`);
-                  setError(null);
+                  if (inviteRef.current) inviteRef.current.open = true;
+                  if (!navigator.clipboard) return;
+                  void navigator.clipboard.writeText(joinUrl)
+                    .then(() => setCopyMessage('已复制邀请链接'))
+                    .catch(() => setCopyMessage('请手动复制下方链接'));
                 }}
-                title="复制地址与房间码，发给同网段的朋友"
+                title="复制邀请链接"
               >
                 房间码 {room.code}
               </button>
@@ -358,8 +381,13 @@ export function LanView({ bootstrap, onBack }: LanViewProps) {
         {room && everConnected && !connected && (
           <div className="lan-banner lan-banner-warn">连接断开，正在重连…（这期间棋盘不会更新）</div>
         )}
-        {room && isSpectator && <div className="lan-banner">观战中 · 只能看不能下</div>}
 
+
+        {room && <div className="lan-banner" role="status">
+          {isSpectator ? '观战中' : myColor === 'B' ? '你执黑' : '你执白'}
+          {room.result ? ` · ${room.result}` : room.status === 'waiting' ? ' · 等对手入座' : myTurn ? ' · 轮到你' : ''}
+        </div>}
+        {room && error && <div className="notice hint-warn screen-notice" role="alert">{error}</div>}
         {room && clock && (
           <div className="clock-bar">
             {(['B', 'W'] as const).map((c) => {
@@ -388,104 +416,90 @@ export function LanView({ bootstrap, onBack }: LanViewProps) {
           </div>
         )}
 
-        <div className="board-wrap">
+        {room && <div className="board-wrap">
           <Board
-            size={boardSize}
-            grid={room?.grid ?? new Array(boardSize * boardSize).fill(0)}
-            lastMove={room?.lastMove ?? null}
+            size={room.size}
+            grid={room.grid}
+            lastMove={room.lastMove}
             ownership={null}
             showOwnership={false}
             ghost={null}
-            hoverMark={bootstrap.config.ui.hoverMark}
+            hoverMark={hoverMark}
             deadStones={[]}
             interactive={myTurn}
             onPlace={(v) => (myTurn ? void act('move', v) : undefined)}
           />
-        </div>
+        </div>}
+        {room?.status === 'playing' && !isSpectator && (
+          <div className="controls board-actions" role="group" aria-label="房间棋盘操作">
+            <button className="btn" onClick={() => void act('pass')} disabled={!myTurn}>停一手</button>
+            <button className="btn" onClick={() => void act('undo')} disabled={!room.moves.length || Boolean(room.undoRequest)}>申请悔棋</button>
+            <button className="btn" onClick={() => { if (window.confirm('认输这盘？')) void act('resign'); }}>认输</button>
+          </div>
+        )}
+        {room?.undoRequest && !isSpectator && (
+          <div className="notice screen-notice" role="status">
+            {room.undoRequest.by === myColor ? '悔棋申请已发出，等对方回应。' : '对方申请悔棋。'}
+            {room.undoRequest.by !== myColor && <div className="controls">
+              <button className="btn btn-primary" onClick={() => void act('undo-yes')}>同意悔棋</button>
+              <button className="btn" onClick={() => void act('undo-no')}>拒绝悔棋</button>
+            </div>}
+          </div>
+        )}
       </div>
 
       <aside className="side">
         {!room ? (
-          <section className="panel">
-            <div className="panel-head">
-              <span className="panel-title">手谈</span>
-              <span className="panel-sub">同一局域网 · 不计入进度</span>
-            </div>
-            <div className="field lan-field">
-              <label>开一间（你执黑）</label>
-              <div className="lan-create">
-                <div className="controls">
-                  <select value={size} onChange={(e) => setSize(Number(e.target.value) as 9 | 13 | 19)}>
-                    <option value={9}>9 路</option>
-                    <option value={13}>13 路</option>
-                    <option value={19}>19 路</option>
-                  </select>
-                </div>
-                <div className="controls">
-                  <select value={timePreset} onChange={(e) => setTimePreset(e.target.value)} title="时间制（房主决定）">
-                    {TIME_PRESETS.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="controls">
-                  <select value={handicap} onChange={(e) => setHandicap(Number(e.target.value))} title="让子（让 2 子以上贴 0.5 目，白先走）">
-                    {HANDICAP_CHOICES.map((n) => (
-                      <option key={n} value={n}>
-                        {handicapLabel(n)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="controls">
-                  <button className="btn btn-primary" onClick={() => void create()} disabled={busy}>
-                    创建房间
-                  </button>
-                </div>
-                <div className="hint">时间制由房主定；读秒每手重置，期数用完判负。</div>
-              </div>
-            </div>
-            <div className="field">
-              <label>加入（房间码）</label>
-              <div className="controls">
-                <input
-                  value={code}
-                  onChange={(e) => setCode(e.target.value.toUpperCase())}
-                  placeholder="6 位房间码"
-                  maxLength={6}
-                  style={{ width: 130, letterSpacing: '.2em' }}
-                />
-                <button className="btn" onClick={() => void join()} disabled={busy}>
-                  加入
+          <div className="lan-lobby-content">
+            {error && <div className="notice hint-warn" role="alert">{error}</div>}
+            <div className="lan-lobby-grid">
+              <section className="panel">
+                <h2>加入房间</h2>
+                <p className="hint">与棋友连接同一局域网，输入房间码。</p>
+                <form className="controls lan-join" onSubmit={(event) => { event.preventDefault(); void join(); }}>
+                  <input type="text" aria-label="房间码" value={code} maxLength={6} placeholder="6 位房间码"
+                    onChange={(event) => setCode(event.target.value.toUpperCase())} />
+                  <button className="btn btn-primary" disabled={busy || !/^[A-Z0-9]{6}$/.test(code.trim())}>加入</button>
+                </form>
+                <button className="btn" onClick={() => void discover()} disabled={discovering}>
+                  {discovering ? '正在搜索…' : '搜索同网段'}
                 </button>
-              </div>
-            </div>
-            <div className="field">
-              <label>自动发现</label>
-              <button className="btn" onClick={() => void discover()} disabled={discovering}>
-                {discovering ? '正在听同网段的房间…' : '搜索同网段'}
-              </button>
-              {found.length > 0 && (
-                <div className="room-list">
-                  {found.map((r) => (
-                    <button key={`${r.host}:${r.code}`} className="room-item" onClick={() => void join(r.code)}>
-                      <span>{r.code}</span>
-                      <span className="hint">
-                        {r.size} 路 · {r.status === 'waiting' ? '等人' : '对局中'} · {r.host}
-                      </span>
+                {found.length > 0 && <div className="room-list">
+                  {found.map((item) => (
+                    <button key={`${item.host}:${item.port}:${item.code}`} className="room-item" disabled={busy}
+                      onClick={() => {
+                        if (item.host === lanAddress?.host && String(item.port) === lanAddress.port) void join(item.code);
+                        else location.assign(`http://${item.host}:${item.port}/?view=lan&room=${item.code}`);
+                      }}>
+                      <strong>{item.code}</strong><span className="hint">{item.size} 路 · 等人</span>
                     </button>
                   ))}
+                </div>}
+              </section>
+              <section className="panel">
+                <h2>创建房间</h2>
+                <div className="field">
+                  <label htmlFor="lan-size">棋盘</label>
+                  <select id="lan-size" value={size} onChange={(event) => setSize(Number(event.target.value) as 9 | 13 | 19)}>
+                    <option value={9}>9 路</option><option value={13}>13 路</option><option value={19}>19 路</option>
+                  </select>
                 </div>
-              )}
+                <div className="field">
+                  <label htmlFor="lan-clock">时间制</label>
+                  <select id="lan-clock" value={timePreset} onChange={(event) => setTimePreset(event.target.value)}>
+                    {TIME_PRESETS.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
+                  </select>
+                </div>
+                <div className="field">
+                  <label htmlFor="lan-handicap">让子</label>
+                  <select id="lan-handicap" value={handicap} onChange={(event) => setHandicap(Number(event.target.value))}>
+                    {HANDICAP_CHOICES.map((n) => <option key={n} value={n}>{handicapLabel(n)}</option>)}
+                  </select>
+                </div>
+                <button className="btn btn-primary" onClick={() => void create()} disabled={busy}>创建房间</button>
+              </section>
             </div>
-            {error && <div className="notice hint-warn">{error}</div>}
-            <div className="hint">
-              手机/平板：连同一个 Wi-Fi，浏览器打开电脑这一页（地址见设置），用房间码加入。
-              手谈不提供 AI 推荐，也不计入修习进度。
-            </div>
-          </section>
+          </div>
         ) : (
           <>
             <section className="panel">
@@ -553,56 +567,22 @@ export function LanView({ bootstrap, onBack }: LanViewProps) {
                 <span className="stat-val">{room.spectators}</span>
               </div>
               {room.result && <div className="stat-row"><span className="stat-key">结果</span><span className="stat-val">{room.result}</span></div>}
-              <div className="qr-block">
-                <QrCode value={joinUrl} size={124} />
-                <div className="hint">
-                  手机扫这个码直接入座（同一 Wi-Fi）
-                  <br />
-                  <span style={{ wordBreak: 'break-all', opacity: 0.8 }}>{joinUrl}</span>
+              <details className="screen-details lan-invite" ref={inviteRef} key={room.code}>
+                <summary>邀请棋友</summary>
+                <div className="qr-block">
+                  <QrCode value={joinUrl} size={124} />
+                  <div className="hint lan-invite-copy">
+                    手机扫这个码直接入座（同一 Wi-Fi）
+                    <br />
+                    <a href={joinUrl}>{joinUrl}</a>
+                    {copyMessage && <div role="status">{copyMessage}</div>}
+                  </div>
                 </div>
-              </div>
-              <div className="controls" style={{ marginTop: 10 }}>
-                <button className="btn" onClick={() => void act('pass')} disabled={!myTurn}>
-                  停一手
-                </button>
-                <button
-                  className="btn"
-                  onClick={() => void act('undo')}
-                  disabled={!myColor || myColor === 'spectator' || room.moves.length === 0 || Boolean(room.undoRequest)}
-                  title="悔棋要对方同意"
-                >
-                  申请悔棋
-                </button>
-                <button className="btn" onClick={() => void act('resign')} disabled={!myColor || myColor === 'spectator' || room.status !== 'playing'}>
-                  认输
-                </button>
-                <button className="btn" onClick={() => void leave()}>
-                  退出房间
-                </button>
-              </div>
-              {room.undoRequest && (
-                <div className="notice">
-                  {room.undoRequest.by === myColor ? '悔棋申请已发出，等对方回应。' : '对方申请悔棋：'}
-                  {room.undoRequest.by !== myColor && (
-                    <div className="controls" style={{ marginTop: 6 }}>
-                      <button className="btn btn-primary" onClick={() => void act('undo-yes')}>
-                        同意
-                      </button>
-                      <button className="btn" onClick={() => void act('undo-no')}>
-                        拒绝
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
-              {error && <div className="notice hint-warn">{error}</div>}
+              </details>
             </section>
 
-            <section className="panel">
-              <div className="panel-head">
-                <span className="panel-title">聊天</span>
-                <span className="panel-sub">不入库</span>
-              </div>
+            <details className="panel screen-details lan-chat">
+              <summary>聊天{chat.length > 0 ? ` · ${chat.length} 条` : ''}</summary>
               <div className="chat-list">
                 {chat.length === 0 && <div className="hint">说点什么吧。</div>}
                 {chat.map((c) => (
@@ -619,6 +599,8 @@ export function LanView({ bootstrap, onBack }: LanViewProps) {
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') void sendChat();
                   }}
+                  type="text"
+                  aria-label="聊天消息"
                   placeholder="说一句…"
                   maxLength={200}
                   style={{ flex: 1 }}
@@ -627,7 +609,7 @@ export function LanView({ bootstrap, onBack }: LanViewProps) {
                   发送
                 </button>
               </div>
-            </section>
+            </details>
           </>
         )}
       </aside>

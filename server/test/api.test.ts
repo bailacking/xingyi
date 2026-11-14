@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { EngineManager } from '@xingyi/engine';
 import { createApp } from '../src/app.js';
 import { loadConfig } from '../src/config.js';
@@ -33,7 +33,8 @@ describe('服务端 REST', () => {
     const data = boot.json();
     expect(data.engine.state).toBe('unconfigured');
     expect(data.modes.ranked.allowUndo).toBe(false);
-    expect(data.progress.level).toBe(8);
+    expect(data.progress.level).toBe(13);
+    expect(data.progress.maxLevel).toBe(25);
     expect(data.progress.placement.done).toBe(false);
   });
 
@@ -52,6 +53,91 @@ describe('服务端 REST', () => {
     const res = await app.inject({ method: 'POST', url: '/api/game', payload: { mode: 'ranked' } });
     expect(res.statusCode).toBe(409);
     expect(res.json().error).toContain('KataGo');
+  });
+
+  it('局域网同源访客可建房，主机配置、评级与对局接口仅限本机', async () => {
+    const address = Object.values(os.networkInterfaces()).flat().find((item) => item?.family === 'IPv4' && !item.internal)?.address;
+    const host = address ?? os.hostname().toLowerCase();
+    const guest = { remoteAddress: address ?? '127.0.0.1', headers: { host, origin: `http://${host}` } };
+    const lan = await app.inject({ ...guest, url: '/api/lan' });
+    expect(lan.statusCode).toBe(200);
+    expect(lan.headers['access-control-allow-origin']).toBeUndefined();
+    const room = await app.inject({ ...guest, method: 'POST', url: '/api/room', payload: { clientId: 'f'.repeat(32) } });
+    expect(room.statusCode).toBe(200);
+    for (const url of ['/api/bootstrap', '/api/progress/export', '/api/matches']) {
+      expect((await app.inject({ ...guest, url })).statusCode).toBe(403);
+    }
+    expect((await app.inject({ ...guest, method: 'PUT', url: '/api/config', payload: { playerName: '测试' } })).statusCode).toBe(403);
+    expect((await app.inject({ url: '/api/bootstrap', headers: { origin: 'http://example.test' } })).statusCode).toBe(403);
+  });
+
+  it('修习固定 19 路分先、重复开局续下原局，数子使用引擎结果', async () => {
+    const rankedPaths = dataPaths(fs.mkdtempSync(path.join(os.tmpdir(), 'xingyi-ranked-')));
+    const engine = new EngineManager({ humanModelPath: 'test-model' });
+    engine.status.state = 'ready';
+    vi.spyOn(engine, 'genmove').mockResolvedValue({ vertex: -1, resign: false, raw: 'pass' });
+    const judge = vi.spyOn(engine, 'finalDead').mockResolvedValue([]);
+    const rankedApp = createApp(new GameService(rankedPaths, engine));
+    try {
+      const start = await rankedApp.inject({ method: 'POST', url: '/api/game', payload: { mode: 'ranked', size: 9, komi: 0.5, handicap: 9 } });
+      expect(start.statusCode).toBe(200);
+      const { snapshot } = start.json();
+      expect(snapshot).toMatchObject({ size: 19, komi: 7.5, handicap: 0, level: 13 });
+      const again = await rankedApp.inject({ method: 'POST', url: '/api/game', payload: { mode: 'ranked' } });
+      expect(again.json().snapshot.id).toBe(snapshot.id);
+      const url = `/api/game/${snapshot.id}`;
+      expect((await rankedApp.inject({ method: 'POST', url: `${url}/review` })).json().available).toBe(false);
+      expect((await rankedApp.inject({ url: `${url}/sgf` })).statusCode).toBe(403);
+      expect((await rankedApp.inject({ method: 'POST', url: `${url}/pass` })).statusCode).toBe(200);
+      expect((await rankedApp.inject({ method: 'POST', url: `${url}/finish`, payload: { dead: [0] } })).statusCode).toBe(400);
+      const final = await rankedApp.inject({ method: 'POST', url: `${url}/finish` });
+      expect(final.statusCode).toBe(200);
+      expect(final.json().settlement.counted).toBe(true);
+      expect(judge).toHaveBeenCalledTimes(1);
+      const next = await rankedApp.inject({ method: 'POST', url: '/api/game', payload: { mode: 'ranked' } });
+      expect(next.json().snapshot).toMatchObject({ level: 19, playerColor: 'W' });
+      expect((await rankedApp.inject({ method: 'POST', url: '/api/saves', payload: { name: '第二档' } })).statusCode).toBe(409);
+      expect((await rankedApp.inject({ method: 'DELETE', url: '/api/saves/legacy' })).statusCode).toBe(409);
+    } finally {
+      await rankedApp.close();
+    }
+  });
+
+  it('存档独立、可导出切换，删除最后一档后重启也不会恢复旧档', async () => {
+    const savePaths = dataPaths(fs.mkdtempSync(path.join(os.tmpdir(), 'xingyi-saves-')));
+    const start = () => createApp(new GameService(savePaths, new EngineManager()));
+    const first = start();
+    let secondId: string;
+    try {
+      await first.inject({ method: 'POST', url: '/api/progress/name', payload: { name: '原有存档' } });
+      const created = await first.inject({ method: 'POST', url: '/api/saves', payload: { name: '新存档' } });
+      expect(created.statusCode).toBe(200);
+      secondId = created.json().activeId;
+      expect(created.json().saves).toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: 'legacy', name: '原有存档' }),
+        expect.objectContaining({ id: secondId, name: '新存档' }),
+      ]));
+      const exported = await first.inject({ url: '/api/saves/legacy/export' });
+      expect(exported.headers['content-disposition']).toContain('attachment');
+      expect(exported.json().progress.playerName).toBe('原有存档');
+      const active = await first.inject({ method: 'POST', url: '/api/saves/legacy/activate' });
+      expect(active.json().activeId).toBe('legacy');
+      const stale = await first.inject({ method: 'POST', url: '/api/game', payload: { mode: 'ranked', saveId: secondId } });
+      expect(stale.json().error).toContain('存档已切换');
+      expect((await first.inject({ method: 'DELETE', url: '/api/saves/legacy' })).json().activeId).toBe(secondId);
+      expect((await first.inject({ method: 'DELETE', url: `/api/saves/${secondId}` })).json().saves).toEqual([]);
+      expect((await first.inject({ url: '/api/saves/legacy/export' })).statusCode).toBe(404);
+      expect(fs.existsSync(savePaths.progressFile)).toBe(false);
+    } finally {
+      await first.close();
+    }
+    const restarted = start();
+    try {
+      expect((await restarted.inject({ url: '/api/saves' })).json()).toMatchObject({ activeId: null, saves: [] });
+      expect((await restarted.inject({ method: 'POST', url: '/api/game', payload: { mode: 'ranked', saveId: null } })).json().error).toContain('建立');
+    } finally {
+      await restarted.close();
+    }
   });
 
   it('自在模式：落子 → 离线对手应手', async () => {
@@ -207,7 +293,7 @@ describe('服务端 REST', () => {
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.timeline.length).toBe(12);
-    expect(body.end.level).toBeGreaterThan(body.start.level);
+    expect(body.end.level).toBeLessThan(body.start.level);
     expect(body.timeline.every((g: { deltaR: number }) => g.deltaR > 0)).toBe(true);
     const after = (await app.inject({ method: 'GET', url: '/api/progress' })).json();
     expect(after.level).toBe(before.level);
@@ -272,17 +358,17 @@ describe('服务端 REST', () => {
   });
 
   it('手谈：创建/加入/观战/落子/悔棋征得同意/认输', async () => {
-    const created = await app.inject({ method: 'POST', url: '/api/room', payload: { size: 9, name: '房主', clientId: 'a' } });
+    const created = await app.inject({ method: 'POST', url: '/api/room', payload: { size: 9, name: '房主', clientId: 'a'.repeat(32) } });
     expect(created.statusCode).toBe(200);
     const code = created.json().room.code as string;
     expect(created.json().room.status).toBe('waiting');
     expect(created.json().color).toBe('B');
 
-    const joined = await app.inject({ method: 'POST', url: `/api/room/${code}/join`, payload: { name: '棋友', clientId: 'b' } });
+    const joined = await app.inject({ method: 'POST', url: `/api/room/${code}/join`, payload: { name: '棋友', clientId: 'b'.repeat(32) } });
     expect(joined.json().color).toBe('W');
     expect(joined.json().room.status).toBe('playing');
 
-    const spec = await app.inject({ method: 'POST', url: `/api/room/${code}/join`, payload: { name: '观众', clientId: 'c' } });
+    const spec = await app.inject({ method: 'POST', url: `/api/room/${code}/join`, payload: { name: '观众', clientId: 'c'.repeat(32) } });
     expect(spec.json().color).toBe('spectator');
     expect(spec.json().room.spectators).toBe(1);
 
@@ -290,25 +376,25 @@ describe('服务端 REST', () => {
     const bad = await app.inject({
       method: 'POST',
       url: `/api/room/${code}/action`,
-      payload: { clientId: 'c', action: 'move', vertex: idx(9, 4, 4) },
+      payload: { clientId: 'c'.repeat(32), action: 'move', vertex: idx(9, 4, 4) },
     });
     expect(bad.statusCode).toBe(403);
 
-    await app.inject({ method: 'POST', url: `/api/room/${code}/action`, payload: { clientId: 'a', action: 'move', vertex: idx(9, 4, 4) } });
-    const w = await app.inject({ method: 'POST', url: `/api/room/${code}/action`, payload: { clientId: 'b', action: 'move', vertex: idx(9, 3, 3) } });
+    await app.inject({ method: 'POST', url: `/api/room/${code}/action`, payload: { clientId: 'a'.repeat(32), action: 'move', vertex: idx(9, 4, 4) } });
+    const w = await app.inject({ method: 'POST', url: `/api/room/${code}/action`, payload: { clientId: 'b'.repeat(32), action: 'move', vertex: idx(9, 3, 3) } });
     expect(w.json().room.moves.length).toBe(2);
 
-    const reqUndo = await app.inject({ method: 'POST', url: `/api/room/${code}/action`, payload: { clientId: 'a', action: 'undo' } });
+    const reqUndo = await app.inject({ method: 'POST', url: `/api/room/${code}/action`, payload: { clientId: 'a'.repeat(32), action: 'undo' } });
     expect(reqUndo.json().room.undoRequest).toEqual({ by: 'B' });
-    const denied = await app.inject({ method: 'POST', url: `/api/room/${code}/action`, payload: { clientId: 'a', action: 'undo-yes' } });
+    const denied = await app.inject({ method: 'POST', url: `/api/room/${code}/action`, payload: { clientId: 'a'.repeat(32), action: 'undo-yes' } });
     expect(denied.statusCode).toBe(400);
-    const accepted = await app.inject({ method: 'POST', url: `/api/room/${code}/action`, payload: { clientId: 'b', action: 'undo-yes' } });
+    const accepted = await app.inject({ method: 'POST', url: `/api/room/${code}/action`, payload: { clientId: 'b'.repeat(32), action: 'undo-yes' } });
     expect(accepted.json().room.moves.length).toBe(1);
 
-    const chat = await app.inject({ method: 'POST', url: `/api/room/${code}/chat`, payload: { clientId: 'c', text: '加油' } });
+    const chat = await app.inject({ method: 'POST', url: `/api/room/${code}/chat`, payload: { clientId: 'c'.repeat(32), text: '加油' } });
     expect(chat.json().chat.at(-1).text).toBe('加油');
 
-    const resign = await app.inject({ method: 'POST', url: `/api/room/${code}/action`, payload: { clientId: 'b', action: 'resign' } });
+    const resign = await app.inject({ method: 'POST', url: `/api/room/${code}/action`, payload: { clientId: 'b'.repeat(32), action: 'resign' } });
     expect(resign.json().room.status).toBe('finished');
     expect(String(resign.json().room.result)).toContain('认输');
   });

@@ -15,6 +15,8 @@ export interface EngineConfig {
   humanModelPath: string | null;
   configPath: string | null;
   extraArgs: string[];
+  /** 自动安装后的 GPU 首次调优可能需要比常规启动更久。 */
+  startupTimeoutMs?: number;
   /**
    * 直接覆盖命令行参数（高级用法 / 测试用）。
    * 正常留 null，由 buildGtpArgs 生成 `gtp -model ... -config ...`。
@@ -71,6 +73,9 @@ export interface AnalyzeRequest {
   visits?: number;
   /** 假设对手水平（playoutDoublingAdvantage），null = 同水平 */
   assumeLevel?: number | null;
+  /** 教学对照：只搜索指定的第一手，之后允许任意合法应对。 */
+  rootMove?: Vertex;
+  minVisits?: number;
 }
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -165,7 +170,7 @@ export class EngineManager extends EventEmitter {
     });
     try {
       session.start();
-      const name = await session.send('name', 20000);
+      const name = await session.send('name', this.config.startupTimeoutMs ?? 20000);
       const version = await session.send('version', 10000).catch(() => '');
       this.version = version || null;
       this.setStatus({
@@ -218,7 +223,7 @@ export class EngineManager extends EventEmitter {
       ok: humanOk,
       message: humanOk
         ? this.config.humanModelPath!
-        : '未配置 human 模型：1~11 级将退回主模型低 visits，棋风会像随机犯蠢（官方说明）',
+        : '未配置 human 模型：8~25 级修习需要此模型',
     });
 
     if (!binaryOk || !modelOk) {
@@ -252,7 +257,7 @@ export class EngineManager extends EventEmitter {
         key: 'humanSL',
         label: 'human SL 已加载',
         ok: humanSL || !this.config.humanModelPath,
-        message: humanSL ? 'human 模型可用于 1~11 级' : '未检测到 human 模型能力',
+        message: humanSL ? 'human 模型可用于 8~25 级' : '未检测到 human 模型能力',
       });
     } catch {
       steps.push({
@@ -327,15 +332,17 @@ export class EngineManager extends EventEmitter {
     }
   }
 
-  /** 按级数下发参数。human SL 相关失败不致命（可能没装 human 模型）。 */
-  private async applyLevelParams(level: number, assumeLevel?: number | null): Promise<void> {
+  /** 自在可用兼容模式，修习要求预设参数全部生效。 */
+  private async applyLevelParams(level: number, assumeLevel?: number | null, strict = false): Promise<void> {
     const p = levelParams(level);
-    await this.tryCmd(`kata-set-param maxVisits ${p.maxVisits}`);
+    const command = (value: string) => strict ? this.session!.sendNow(value, 8000) : this.tryCmd(value);
+    if (strict && p.profile && !this.config.humanModelPath) throw new Error('修习需要人类模型');
+    await command(`kata-set-param maxVisits ${p.maxVisits}`);
     if (p.profile) {
       if (this.config.humanModelPath) {
         // 实测：只设 humanSLProfile 并不会改变棋——humanSLChosenMoveProp 默认是 0，
         // 意思是「不从人类模型选点」。必须显式设成 1 才真的走 human SL。
-        await this.tryCmd(
+        await command(
           `kata-set-params ${JSON.stringify({
             humanSLProfile: p.profile,
             humanSLChosenMoveProp: 1.0,
@@ -347,7 +354,7 @@ export class EngineManager extends EventEmitter {
         );
       }
     } else {
-      await this.tryCmd(
+      await command(
         `kata-set-params ${JSON.stringify({
           humanSLProfile: '',
           humanSLChosenMoveProp: 0,
@@ -356,11 +363,11 @@ export class EngineManager extends EventEmitter {
       );
     }
     if (typeof assumeLevel === 'number' && Number.isFinite(assumeLevel)) {
-      const diff = level - assumeLevel;
+      const diff = assumeLevel - level;
       const pda = Math.max(-1.5, Math.min(1.5, diff * 0.1));
-      await this.tryCmd(`kata-set-param playoutDoublingAdvantage ${pda.toFixed(3)}`);
+      await command(`kata-set-param playoutDoublingAdvantage ${pda.toFixed(3)}`);
     } else {
-      await this.tryCmd('kata-set-param playoutDoublingAdvantage 0');
+      await command('kata-set-param playoutDoublingAdvantage 0');
     }
   }
 
@@ -370,14 +377,16 @@ export class EngineManager extends EventEmitter {
     level: number,
     position: { size: number; komi: number; moves: MoveLike[] },
     timeoutMs = 60000,
+    strict = false,
   ): Promise<{ vertex: Vertex; resign: boolean; raw: string }> {
     const session = this.session;
     if (!session || !this.ready) throw new Error('引擎未就绪');
     return session.exclusive(async () => {
       this.setStatus({ state: 'thinking' });
       try {
+        if (strict) await session.sendNow('kata-set-rules chinese', 8000);
         await this.syncPosition(position.size, position.komi, position.moves);
-        await this.applyLevelParams(level);
+        await this.applyLevelParams(level, null, strict);
         const raw = (await session.sendNow(`genmove ${color}`, timeoutMs)).trim();
         const token = raw.split(/\s+/)[0] ?? 'pass';
         if (/^resign$/i.test(token)) return { vertex: PASS, resign: true, raw };
@@ -391,6 +400,17 @@ export class EngineManager extends EventEmitter {
       } finally {
         this.setStatus({ state: 'ready' });
       }
+    });
+  }
+
+  async finalDead(position: { size: number; komi: number; moves: MoveLike[] }): Promise<Vertex[]> {
+    const session = this.session;
+    if (!session || !this.ready) throw new Error('引擎未就绪');
+    return session.exclusive(async () => {
+      await session.sendNow('kata-set-rules chinese', 8000);
+      await this.syncPosition(position.size, position.komi, position.moves);
+      const raw = (await session.sendNow('final_status_list dead', 30000)).trim();
+      return raw ? raw.split(/\s+/).map((token) => gtpToVertex(position.size, token)).filter((vertex) => vertex !== PASS) : [];
     });
   }
 
@@ -414,6 +434,8 @@ export class EngineManager extends EventEmitter {
       setup,
       visits,
       assumeLevel = null,
+      rootMove,
+      minVisits = 0,
     } = req;
 
     return session.exclusive(async () => {
@@ -421,6 +443,9 @@ export class EngineManager extends EventEmitter {
       const started = Date.now();
       const acc = createAccumulator(size, turn);
       try {
+        if (rootMove !== undefined || minVisits > 0) {
+          await session.sendNow('kata-set-rules chinese', 8000);
+        }
         if (setup && (setup.black.length > 0 || setup.white.length > 0)) {
           await this.syncSetup(size, komi, setup, moves, turn);
         } else {
@@ -433,13 +458,12 @@ export class EngineManager extends EventEmitter {
         await this.tryCmd('kata-set-param analysisIgnorePreRootHistory true');
         session.beginAnalysis((line) => feedLine(acc, line));
         const cs = Math.max(10, Math.round(intervalMs / 10));
-        session.writeRaw(
-          `kata-analyze ${turn} interval ${cs} maxmoves ${maxMoves} ownership true rootInfo true`,
-        );
+        const restriction = rootMove === undefined ? '' : ` allow ${turn} ${vertexToGtp(size, rootMove)} 1`;
+        session.writeRaw(`kata-analyze ${turn} interval ${cs} maxmoves ${maxMoves} ownership true rootInfo true${restriction}`);
         for (;;) {
           const elapsed = Date.now() - started;
           if (elapsed >= maxDurationMs) break;
-          if (elapsed >= minDurationMs && acc.candidates.size > 0) break;
+          if (elapsed >= minDurationMs && acc.candidates.size > 0 && acc.rootVisits >= minVisits) break;
           await sleep(40);
         }
         session.endAnalysis();

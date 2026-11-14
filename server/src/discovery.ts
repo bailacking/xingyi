@@ -15,7 +15,7 @@ export interface DiscoveredRoom {
  * 有房间时每 2 秒广播一次；没有房间就不发，避免在别人机器上刷出空列表。
  * 返回停止函数。
  */
-export function startBeacon(getRooms: () => { code: string; size: number; status: string }[]): () => void {
+export function startBeacon(port: number, getRooms: () => { code: string; size: number; status: string }[]): () => void {
   const sock = dgram.createSocket({ type: 'udp4', reuseAddr: true });
   sock.on('error', () => undefined);
   sock.bind(() => {
@@ -31,7 +31,7 @@ export function startBeacon(getRooms: () => { code: string; size: number; status
     const payload = Buffer.from(
       JSON.stringify({
         type: 'xingyi-room',
-        port: Number(process.env.XINGYI_PORT ?? process.env.PORT ?? 7388),
+        port,
         rooms,
       }),
     );
@@ -51,23 +51,28 @@ export function startBeacon(getRooms: () => { code: string; size: number; status
   };
 }
 
-/** 听 1.2 秒，收集同网段在等对手的房间。 */
-export function discoverRooms(timeoutMs = 1200): Promise<DiscoveredRoom[]> {
+/** 监听至少一个广播周期，收集同网段在等对手的房间。 */
+export function discoverRooms(timeoutMs = 2400): Promise<DiscoveredRoom[]> {
   return new Promise((resolve) => {
     const sock = dgram.createSocket({ type: 'udp4', reuseAddr: true });
     const found = new Map<string, DiscoveredRoom>();
     sock.on('message', (msg, rinfo) => {
       try {
         const data = JSON.parse(msg.toString()) as {
+          type?: string;
           rooms?: { code: string; size: number; status?: string }[];
           port?: number;
         };
-        for (const r of data.rooms ?? []) {
-          found.set(`${rinfo.address}:${data.port ?? 7388}:${r.code}`, {
+        if (data.type !== 'xingyi-room' || !Number.isInteger(data.port) || data.port! < 1 || data.port! > 65535) return;
+        if (!Array.isArray(data.rooms)) return;
+        for (const r of data.rooms.slice(0, 32)) {
+          if (!r || typeof r.code !== 'string' || !/^[A-Z0-9]{6}$/.test(r.code) || ![9, 13, 19].includes(r.size) || r.status !== 'waiting') continue;
+          if (found.size >= 100) return;
+          found.set(`${rinfo.address}:${data.port}:${r.code}`, {
             code: r.code,
             size: r.size,
             host: rinfo.address,
-            port: data.port ?? 7388,
+            port: data.port!,
             status: r.status,
           });
         }

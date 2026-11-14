@@ -1,17 +1,23 @@
+import { BEGINNER_LEVEL } from '@xingyi/shared';
+import type { RankTable } from './levels.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { normalizeProgress, type Progress } from './progress.js';
 
+function readProgress(file: string): Partial<Progress> {
+  const raw = JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, ''));
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('存档格式无效');
+  return raw as Partial<Progress>;
+}
+
 /** 读存档；不存在或损坏返回 null（由调用方决定是否新建）。 */
-export function loadProgressFile(file: string, maxLevel = 15): Progress | null {
+export function loadProgressFile(file: string, maxLevel = BEGINNER_LEVEL, ranks?: RankTable): Progress | null {
   try {
-    const text = fs.readFileSync(file, 'utf8');
-    return normalizeProgress(JSON.parse(text), maxLevel);
+    return normalizeProgress(readProgress(file), maxLevel, ranks);
   } catch {
     // 主档坏了试 .bak（AGENTS.md §13）
     try {
-      const bak = fs.readFileSync(`${file}.bak`, 'utf8');
-      return normalizeProgress(JSON.parse(bak), maxLevel);
+      return normalizeProgress(readProgress(`${file}.bak`), maxLevel, ranks);
     } catch {
       return null;
     }
@@ -37,6 +43,22 @@ function todayKey(d = new Date()): string {
  */
 export function saveProgressFile(file: string, backupDir: string, p: Progress): void {
   fs.mkdirSync(path.dirname(file), { recursive: true });
+  const legacyBackup = `${file}.v1.bak`;
+  if (p.schemaVersion === 2 && !fs.existsSync(legacyBackup)) {
+    for (const candidate of [file, `${file}.bak`]) {
+      try {
+        if ((readProgress(candidate).schemaVersion ?? 1) !== 1) continue;
+      } catch {
+        continue;
+      }
+      try {
+        fs.copyFileSync(candidate, legacyBackup, fs.constants.COPYFILE_EXCL);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      }
+      break;
+    }
+  }
   if (fs.existsSync(file)) {
     try {
       fs.copyFileSync(file, `${file}.bak`);

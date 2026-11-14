@@ -31,6 +31,7 @@ export interface MatchInit {
   examLevel?: number | null;
   /** 时间制；null = 不限时 */
   timeControl?: TimeControl | null;
+  fromLesson?: boolean;
 }
 
 /** 一局 = 规则状态 + 模式元信息。规则的事交给 @xingyi/rules。 */
@@ -44,6 +45,7 @@ export class Match {
   readonly examLevel: number | null;
   readonly game: Game;
   readonly size: BoardSize;
+  readonly fromLesson: boolean;
   readonly createdAt: string;
   updatedAt: string;
 
@@ -64,6 +66,7 @@ export class Match {
     this.level = init.level;
     this.playerColor = init.playerColor;
     this.opponent = init.opponent;
+    this.fromLesson = init.fromLesson ?? false;
     this.isPlacement = init.isPlacement ?? false;
     this.examLevel = init.examLevel ?? null;
     this.game = new Game({

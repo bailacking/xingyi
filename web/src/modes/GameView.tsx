@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { gtpToVertex } from '@xingyi/shared';
+import { BEGINNER_LEVEL, STRONGEST_LEVEL, gtpToVertex, type TeachingReviewStatus } from '@xingyi/shared';
 import { Board as RulesBoard, Game } from '@xingyi/rules';
 import { Board } from '../board/Board';
+import { FirstGameReviewView } from './FirstGameReviewView';
 import { api, ApiError, type Bootstrap, type GameResponse, type SocketEvent } from '../api';
 import { AnalysisPanel } from '../panels/AnalysisPanel';
 import { MoveList } from '../panels/MoveList';
@@ -27,6 +28,9 @@ interface GameViewProps {
   mode: Mode;
   bootstrap: Bootstrap;
   lastEvent: SocketEvent | null;
+  initialGame?: GameResponse;
+  fromLesson?: boolean;
+  onEngineSettings?: () => void;
   onBack: () => void;
 }
 
@@ -57,12 +61,12 @@ const fmtClock = (ms: number): string => {
   return String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0');
 };
 
-export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) {
+export function GameView({ mode, bootstrap, lastEvent, initialGame, fromLesson = false, onBack, onEngineSettings }: GameViewProps) {
   const caps = CAPS[mode];
-  const [game, setGame] = useState<GameSnapshot | null>(null);
-  const [opponent, setOpponent] = useState<'katago' | 'offline' | 'human'>('offline');
-  const [isPlacement, setIsPlacement] = useState(false);
-  const [settlement, setSettlement] = useState<Settlement | null>(null);
+  const [game, setGame] = useState<GameSnapshot | null>(initialGame?.snapshot ?? null);
+  const [opponent, setOpponent] = useState<'katago' | 'offline' | 'human'>(initialGame?.opponent ?? 'offline');
+  const [placementStage, setPlacementStage] = useState<number | null>(initialGame?.placementStage ?? null);
+  const [settlement, setSettlement] = useState<Settlement | null>(initialGame?.settlement ?? null);
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [analysisReason, setAnalysisReason] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
@@ -79,24 +83,32 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
   } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showResult, setShowResult] = useState(false);
+  const [pane, setPane] = useState<'game' | 'analysis' | 'moves'>('game');
   const [review, setReview] = useState<{ result: ReviewResult; ply: number } | null>(null);
+  const [showFirstGameReview, setShowFirstGameReview] = useState(false);
+  const [teaching, setTeaching] = useState<TeachingReviewStatus | null>(null);
+  const [startingTeaching, setStartingTeaching] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editGrid, setEditGrid] = useState<number[] | null>(null);
   const [palette, setPalette] = useState<'B' | 'W' | 'E'>('B');
   const [editToPlay, setEditToPlay] = useState<'B' | 'W'>('B');
-  const [assume, setAssume] = useState<number | null>(null);
+  const [assumeDelta, setAssumeDelta] = useState(0);
   const [reviewing, setReviewing] = useState(false);
-  const autoReviewed = useRef(false);
   /** 「中断复盘」标记：置 true 后，下一轮请求先喊停再收最终快照 */
   const reviewCancelled = useRef(false);
+  const reviewDismissed = useRef(false);
   const [setup, setSetup] = useState<Setup>({
-    size: bootstrap.config.game.boardSize,
-    level: Math.min(8, bootstrap.progress.maxLevel),
-    playerColor: bootstrap.config.ui.playerColor,
+    size: fromLesson ? 9 : bootstrap.config.game.boardSize,
+    level: fromLesson ? BEGINNER_LEVEL : bootstrap.progress.maxLevel,
+    playerColor: fromLesson ? 'B' : bootstrap.config.ui.playerColor,
     handicap: 0,
-    timePreset: '10m' as TimePresetId,
+    timePreset: fromLesson ? 'none' : '10m',
   });
+
+  const setupDetails = useRef<HTMLDetailsElement>(null);
+  const sgfInput = useRef<HTMLInputElement>(null);
+  const baseLevel = game?.level ?? setup.level;
+  const assume = assumeDelta === 0 ? null : Math.min(bootstrap.progress.maxLevel, Math.max(STRONGEST_LEVEL, baseLevel - assumeDelta));
 
   const gameRef = useRef<GameSnapshot | null>(null);
   gameRef.current = game;
@@ -114,35 +126,38 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
   }, [game]);
 
   const applyResponse = useCallback((res: GameResponse) => {
+    gameRef.current = res.snapshot;
     setGame(res.snapshot);
     if (res.opponent) setOpponent(res.opponent);
-    if (typeof res.isPlacement === 'boolean') setIsPlacement(res.isPlacement);
+    if (res.placementStage !== undefined) setPlacementStage(res.placementStage);
     if (res.settlement) setSettlement(res.settlement);
     if (res.warnings?.length) setError(res.warnings.join(' / '));
   }, []);
 
   const startGame = useCallback(
-    async (examLevel?: number | null, override?: Partial<Setup>) => {
-      // 改完选择器马上开局时，闭包里的 setup 还是旧值 → 用 override 传新值
-      const next = { ...setup, ...override };
+    async (examLevel?: number | null) => {
+      const next = setup;
       setBusy(true);
       setError(null);
       setSettlement(null);
-      setShowResult(false);
+      setPane('game');
       setAnalysis(null);
+      setHoverPv(null);
       setAnalysisReason(null);
       setDeadStones([]);
       setScorePreview(null);
+      reviewDismissed.current = true;
       setReview(null);
+      setShowFirstGameReview(false);
+      setTeaching(null);
       setReviewing(false);
       // 切局要退出摆棋，否则编辑盘面会和棋盘尺寸对不上
       setEditing(false);
       setEditGrid(null);
-      autoReviewed.current = false;
       try {
         const res = await api.newGame(
           mode === 'ranked'
-            ? { mode, examLevel: examLevel ?? null }
+            ? { mode, examLevel: examLevel ?? null, saveId: bootstrap.progress.activeSaveId }
             : {
                 mode,
                 size: next.size,
@@ -151,22 +166,25 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
                 komi: 7.5,
                 handicap: next.handicap,
                 timeControl: TIME_PRESETS.find((t) => t.id === next.timePreset)?.control ?? null,
+                ...(fromLesson ? { fromLesson: true } : {}),
               },
         );
         applyResponse(res);
+        if (setupDetails.current) setupDetails.current.open = false;
       } catch (err) {
         setError(err instanceof ApiError ? err.message : '开局失败');
       } finally {
         setBusy(false);
       }
     },
-    [applyResponse, mode, setup.level, setup.playerColor, setup.size, setup.handicap, setup.timePreset],
+    [applyResponse, mode, bootstrap.progress.activeSaveId, fromLesson, setup],
   );
 
   const startReview = useCallback(async () => {
     const g = gameRef.current;
     if (!g) return;
     reviewCancelled.current = false;
+    reviewDismissed.current = false;
     setReviewing(true);
     setError(null);
     try {
@@ -175,6 +193,10 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
       for (;;) {
         if (reviewCancelled.current) await api.reviewCancel(g.id).catch(() => undefined);
         const res = await api.review(g.id);
+        if (reviewDismissed.current) {
+          if (res.available && res.result.progress?.running) await api.reviewCancel(g.id).catch(() => undefined);
+          break;
+        }
         if (!res.available) {
           setError(res.reason);
           break;
@@ -183,7 +205,6 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
           result: res.result,
           ply: prev ? prev.ply : Math.max(0, res.result.points.length),
         }));
-        setShowResult(false);
         if (!res.result.progress?.running) break;
       }
     } catch (err) {
@@ -193,6 +214,8 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
     }
   }, []);
 
+  useEffect(() => () => { reviewDismissed.current = true; }, []);
+
   const enterEdit = () => {
     if (editing) {
       setEditing(false);
@@ -200,8 +223,10 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
       return;
     }
     setEditing(true);
+    setError(null);
     setReview(null);
-    setEditGrid(new Array((game?.size ?? setup.size) ** 2).fill(0));
+    setEditGrid(new Array(setup.size ** 2).fill(0));
+    if (setupDetails.current) setupDetails.current.open = false;
     setPalette('B');
   };
 
@@ -215,7 +240,9 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
       setEditing(false);
       setEditGrid(null);
       setSettlement(null);
-      setShowResult(false);
+      setAnalysis(null);
+      setHoverPv(null);
+      setPane('analysis');
     } catch (err) {
       setError(err instanceof ApiError ? err.message : '摆子开局失败');
     } finally {
@@ -232,16 +259,8 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
     }
   };
 
-  // 输了自动进复盘（可以随时退出）
   useEffect(() => {
-    if (review || reviewing || autoReviewed.current) return;
-    if (!game || game.status !== 'finished' || settlement?.won !== false) return;
-    autoReviewed.current = true;
-    void startReview();
-  }, [game?.status, settlement?.won, review, reviewing, startReview]);
-
-  useEffect(() => {
-    void startGame(null);
+    if (mode === 'free') void startGame(null);
     // 只在模式变化时自动开局；难度调整由「重新开局」按钮触发
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode]);
@@ -261,7 +280,7 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
     void api
       .getGame(game.id)
       .then((res) => {
-        if (!alive) return;
+        if (!alive || gameRef.current?.id !== game.id) return;
         if (res.settlement) setSettlement(res.settlement);
         if (res.snapshot) setGame(res.snapshot);
       })
@@ -271,11 +290,11 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
     };
   }, [game, settlement]);
 
-  // 结束时一声磬 + 弹出结算
+  // 对局结束时播放结算音
   useEffect(() => {
     if (!game || game.status !== 'finished') return;
     playBell();
-    setShowResult(true);
+
   }, [game?.status, game?.id]);
 
   // 实时分析（仅自在模式；防抖合并连续摆子）
@@ -307,7 +326,7 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
 
   // 结算阶段：死子变化时刷新形势
   useEffect(() => {
-    if (!game || game.status !== 'scoring') return;
+    if (!caps.allowUndo || !game || game.status !== 'scoring') return;
     let alive = true;
     void api
       .score(game.id, deadStones)
@@ -316,7 +335,7 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
     return () => {
       alive = false;
     };
-  }, [game?.id, game?.status, deadStones.join(',')]);
+  }, [game?.id, game?.status, caps.allowUndo, deadStones.join(',')]);
 
   const play = async (vertex: number) => {
     if (!game || busy || game.aiThinking || game.status !== 'playing') return;
@@ -347,7 +366,7 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
     const back = opponent === 'human' ? 1 : 2;
     try {
       applyResponse(await api.undo(game.id, Math.max(0, game.moves.length - back)));
-      setShowResult(false);
+      setPane('game');
       setSettlement(null);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : '悔棋失败');
@@ -366,7 +385,7 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
 
   const doResign = async () => {
     if (!game) return;
-    if (!window.confirm('认输这盘？修习模式下会算负并计入进度。')) return;
+    if (!window.confirm(caps.quitLoses ? '认输这盘？本局会计负。' : '认输这盘？')) return;
     try {
       applyResponse(await api.resign(game.id));
     } catch (err) {
@@ -375,12 +394,15 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
   };
 
   const doFinish = async () => {
-    if (!game) return;
+    if (!game || busy) return;
+    setBusy(true);
+    setError(null);
     try {
       applyResponse(await api.finish(game.id, deadStones));
-      setShowResult(true);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : '结算失败');
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -389,20 +411,29 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
       if (!window.confirm('修习模式下中途退出算负，确定离开？')) return;
       try {
         await api.quit(game.id);
-      } catch {
-        /* 忽略 */
+      } catch (error) {
+        setError(error instanceof ApiError ? error.message : '暂时无法退出对局，请重试。');
+        return;
       }
     }
     onBack();
   };
 
   const importSgf = async (file: File) => {
+    if (busy || reviewing) return;
     try {
       const text = await file.text();
       const res = await api.importSgf(text);
       applyResponse(res);
+      setEditing(false);
+      setEditGrid(null);
+      setReview(null);
+      setDeadStones([]);
+      setScorePreview(null);
+      setAnalysis(null);
+      setHoverPv(null);
       setSettlement(null);
-      setShowResult(false);
+      setPane('game');
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'SGF 解析失败');
     }
@@ -430,6 +461,48 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
     return { grid: Array.from(g.board.grid), lastMove: n > 0 ? game.moves[n - 1]!.vertex : null };
   }, [review, game]);
 
+  const canTeach = Boolean(game && opponent === 'katago' && game.status === 'finished' &&
+    !game.handicap && game.moves.some((move) => move.color === game.playerColor && move.vertex !== PASS));
+  const teachingGameId = canTeach ? game?.id : undefined;
+  const teachingRunning = teaching?.phase === 'running';
+
+  const openTeaching = async () => {
+    if (!teachingGameId) return;
+    if (teaching?.phase === 'ready') { setShowFirstGameReview(true); return; }
+    setStartingTeaching(true);
+    try {
+      const status = await api.teachingReview(teachingGameId, true);
+      if (gameRef.current?.id !== teachingGameId) return;
+      setTeaching(status);
+      setShowFirstGameReview(status.phase === 'ready');
+    } catch (err) {
+      if (gameRef.current?.id === teachingGameId) {
+        setTeaching({ phase: 'unavailable', reason: err instanceof ApiError ? err.message : '无法开始教学复盘，请重试。' });
+      }
+    } finally {
+      setStartingTeaching(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!teachingRunning || !teachingGameId) return;
+    let active = true;
+    let timer: number;
+    const poll = async () => {
+      try {
+        const status = await api.teachingReview(teachingGameId);
+        if (!active || gameRef.current?.id !== teachingGameId) return;
+        setTeaching(status);
+        if (status.phase === 'ready') setShowFirstGameReview(true);
+        if (status.phase === 'running') timer = window.setTimeout(() => void poll(), 700);
+      } catch {
+        if (active) setTeaching({ phase: 'unavailable', reason: '读取分析进度失败，可以重新打开教学复盘。' });
+      }
+    };
+    timer = window.setTimeout(() => void poll(), 450);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [teachingRunning, teachingGameId]);
+
   const humanTurn = Boolean(
     game && game.status === 'playing' && !game.aiThinking && (opponent === 'human' || game.toPlay === game.playerColor),
   );
@@ -445,13 +518,14 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
           : humanTurn
             ? '轮到你了'
             : '等待';
+  const activePane = pane === 'analysis' && game?.status !== 'playing' ? 'game' : pane;
 
   const opponentLabel = opponent === 'offline' ? '离线对手' : opponent === 'human' ? '同机对手' : 'KataGo';
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLElement && e.target.matches('input, select, textarea, [contenteditable]')) return;
       if (e.key === 'f' || e.key === 'F') setShowOwnership((v) => !v);
-      if (e.key === 'Escape') setShowResult(false);
       if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
         setReview((r) => {
           if (!r) return r;
@@ -464,8 +538,23 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  if (showFirstGameReview && teaching?.phase === 'ready' && game) {
+    return (
+      <FirstGameReviewView
+        exercise={teaching.exercise}
+        onTry={async (vertex) => (await api.tryTeachingMove(game.id, vertex)).attempt}
+        hoverMark={bootstrap.config.ui.hoverMark}
+        onBack={() => setShowFirstGameReview(false)}
+        save={{ saved: teaching.saved, run: async () => {
+          await api.saveMistake(game.id, 'katago');
+          setTeaching((current) => current?.phase === 'ready' ? { ...current, saved: true } : current);
+        } }}
+      />
+    );
+  }
+
   return (
-    <div className="game">
+    <div className="game screen-game match-screen">
       <div className="board-column">
         <div className="topbar">
           <button className="linkish" onClick={() => void exit()}>
@@ -474,91 +563,32 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
           <span className="brand">星弈</span>
           <span className="badge">{MODE_NAMES[mode]}</span>
           <span className="grow" />
-          {mode === 'free' && (
-            <>
-              <select
-                value={setup.size}
-                disabled={busy}
-                onChange={(e) => {
-                  const size = Number(e.target.value) as 9 | 13 | 19;
-                  setSetup((s) => ({ ...s, size }));
-                  // 改路数就是要换棋盘，立刻重开；不用再点「重新开局」
-                  void startGame(null, { size });
-                }}
-                style={{ width: 88 }}
-                title="棋盘路数（改完立刻重开一局）"
-              >
-                <option value={9}>9 路</option>
-                <option value={13}>13 路</option>
-                <option value={19}>19 路</option>
-              </select>
-              <select
-                value={setup.level}
-                onChange={(e) => setSetup((s) => ({ ...s, level: Number(e.target.value) }))}
-                style={{ width: 100 }}
-                title="对手难度"
-              >
-                {Array.from({ length: bootstrap.progress.maxLevel }, (_, i) => i + 1).map((lv) => (
-                  <option key={lv} value={lv}>
-                    {levelCn(lv)}
-                  </option>
-                ))}
-              </select>
-              <select
-                value={assume === null ? 0 : assume - setup.level}
-                onChange={(e) => {
-                  const delta = Number(e.target.value);
-                  setAssume(delta === 0 ? null : Math.min(15, Math.max(1, setup.level + delta)));
-                }}
-                style={{ width: 132 }}
-                title="摆棋/分析时假设对手水平（只影响分析，不影响对局）"
-              >
-                <option value={0}>假设：同水平</option>
-                <option value={-3}>假设：弱 3 级</option>
-                <option value={-6}>假设：弱 6 级</option>
-                <option value={3}>假设：强 3 级</option>
-              </select>
-              <button className="btn" onClick={() => void startGame(null)} disabled={busy}>
-                重新开局
-              </button>
-              <button className="btn" onClick={enterEdit}>
-                {editing ? '退出摆棋' : '摆棋'}
-              </button>
-              <label className="btn" style={{ cursor: 'pointer' }}>
-                导入棋谱
-                <input
-                  type="file"
-                  accept=".sgf,application/x-go-sgf"
-                  style={{ display: 'none' }}
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) void importSgf(f);
-                    e.target.value = '';
-                  }}
-                />
-              </label>
-            </>
-          )}
-          <span className={`badge${humanTurn ? ' badge-live' : ''}`}>{statusText}</span>
+          <span className={`badge${humanTurn && !review ? ' badge-live' : ''}`}>{review ? '复盘' : editing ? '摆棋' : statusText}</span>
         </div>
 
         <div className="seals">
           <div className="seal-block">
-            <Seal text={levelCnFormal(game?.level ?? 8)} active={humanTurn} />
-            <div className="seal-caption">{isPlacement ? '定级 · 你' : '你'}</div>
+            <Seal text={levelCnFormal(game?.level ?? setup.level)} active={humanTurn} />
+            <div className="seal-caption">{game && opponent !== 'human' ? (game.playerColor === 'B' ? '你执黑' : '你执白') : '你'}</div>
           </div>
           <span className="seal-vs">对</span>
           <div className="seal-block">
-            <Seal text={levelCnFormal(game?.level ?? 8)} active={!humanTurn && game?.status === 'playing'} />
+            <Seal text={levelCnFormal(game?.level ?? setup.level)} active={!humanTurn && game?.status === 'playing'} />
             <div className="seal-caption">
               难度 · {opponentLabel}
             </div>
           </div>
         </div>
 
+        {error && <div className="notice hint-warn screen-notice" role="alert">{error}</div>}
+        {!game && error && onEngineSettings && (
+          <div className="controls"><button className="btn btn-primary" onClick={onEngineSettings}>打开引擎设置</button></div>
+        )}
+
         {editing && (
           <div className="editor-bar">
-            <span className="hint">摆棋：点棋盘落子</span>
+            <span className="hint">摆棋 · 点击交叉点</span>
+            <button className="btn" onClick={enterEdit}>退出摆棋</button>
             {(
               [
                 ['B', '黑'],
@@ -649,7 +679,7 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
                 void play(v);
               }}
               onToggleDead={
-                !review && game.status === 'scoring'
+                caps.allowUndo && !review && game.status === 'scoring'
                   ? (v) => {
                       // 点一颗子 = 整块一起标死（玩家不会一块棋点五下）
                       const group = new RulesBoard(game.size, game.grid).groupAt(v).stones;
@@ -665,268 +695,182 @@ export function GameView({ mode, bootstrap, lastEvent, onBack }: GameViewProps) 
             <div className="hint">{busy ? '正在开局…' : '没有对局'}</div>
           )}
         </div>
+        {game?.status === 'scoring' && !editing && !review && (
+          <section className="panel match-scoring" aria-label="数子">
+            <div className="panel-head"><span className="panel-title">数子</span><span className="panel-sub">双方停手</span></div>
+            {caps.allowUndo ? (
+              <>
+                <div className="match-score-values">
+                  <span>黑 {scorePreview?.blackArea ?? '—'}</span>
+                  <span>白 {scorePreview ? scorePreview.whiteArea + scorePreview.komi : '—'}（含贴目）</span>
+                  {scorePreview && <strong>{scorePreview.winner ? `${scorePreview.winner === 'B' ? '黑' : '白'}胜 ${scorePreview.margin} 目` : '和棋'}</strong>}
+                </div>
+                <p className="hint">点棋子整块标死或取消。已标 {deadStones.length} 子。</p>
+              </>
+            ) : <p className="hint">KataGo 裁定死子，按中国规则数子。</p>}
+            <div className="controls">
+              <button className="btn btn-primary" onClick={() => void doFinish()} disabled={busy}>
+                {busy ? '正在数子…' : caps.allowUndo ? '确认结算' : '自动数子并结算'}
+              </button>
+              {caps.allowUndo && <button className="btn" disabled={busy} onClick={() => void doUndo()}>撤销停手</button>}
+            </div>
+          </section>
+        )}
+        {game?.status === 'playing' && !editing && !review && (
+          <div className="controls board-actions" role="group" aria-label="棋盘操作">
+            <button className="btn" onClick={doPass} disabled={!humanTurn || busy}>停一手</button>
+            {caps.allowUndo && <>
+              <button className="btn" onClick={doUndo} disabled={busy || !game.moves.length}>悔棋</button>
+              <button className="btn" onClick={() => void doRedo()} disabled={busy || !game.canRedo}>重做</button>
+              <button className="btn" onClick={doEnd} disabled={busy}>终局数子</button>
+            </>}
+            <button className="btn" onClick={doResign} disabled={busy}>认输</button>
+          </div>
+        )}
+        {review && <div className="board-actions review-position">回看第 {review.ply} 手</div>}
       </div>
 
-      <aside className="side">
-        {/* 错误提示放最上面：放侧栏底部时在 1440×900 下会落到视口外，等于没提示（B-003） */}
-        {error && <div className="notice hint-warn">{error}</div>}
-        {mode === 'free' && !review && (
-          <section className="panel">
-            <div className="panel-head">
-              <span className="panel-title">新对局</span>
-              <span className="panel-sub">改完点「开始」</span>
-            </div>
-            <div className="field">
-              <label>让子</label>
-              <select
-                value={setup.handicap}
-                onChange={(e) => setSetup((s2) => ({ ...s2, handicap: Number(e.target.value) }))}
-              >
-                <option value={0}>不让子</option>
-                {[2, 3, 4, 5, 6, 7, 8, 9].map((n) => (
-                  <option key={n} value={n}>
-                    让 {n} 子
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="field">
-              <label>时间</label>
-              <select
-                value={setup.timePreset}
-                onChange={(e) => setSetup((s2) => ({ ...s2, timePreset: e.target.value as TimePresetId }))}
-              >
-                {TIME_PRESETS.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="controls" style={{ marginTop: 8 }}>
-              <button className="btn btn-primary" onClick={() => void startGame(null)} disabled={busy}>
-                开始新对局
-              </button>
-            </div>
-            {setup.handicap >= 2 && <div className="hint">让子局：黑棋先摆好，白棋先走，贴 0.5 目。</div>}
-          </section>
-        )}
-
-        {game?.status === 'scoring' && (
-          <section className="panel" style={{ borderColor: 'var(--accent)' }}>
-            <div className="panel-head">
-              <span className="panel-title">数子</span>
-              <span className="panel-sub">双方停手</span>
-            </div>
-            {scorePreview ? (
-              <>
-                <div className="stat-row">
-                  <span className="stat-key">黑（子 + 空）</span>
-                  <span className="stat-val">{scorePreview.blackArea} 目</span>
-                </div>
-                <div className="stat-row">
-                  <span className="stat-key">白（子 + 空 + 贴 {scorePreview.komi}）</span>
-                  <span className="stat-val">{scorePreview.whiteArea + scorePreview.komi} 目</span>
-                </div>
-                <div className="stat-row">
-                  <span className="stat-key">结论</span>
-                  <span className="stat-val" style={{ fontFamily: 'var(--font-title)', fontSize: 17 }}>
-                    {scorePreview.winner === 'B'
-                      ? `黑胜 ${scorePreview.margin} 目`
-                      : scorePreview.winner === 'W'
-                        ? `白胜 ${scorePreview.margin} 目`
-                        : '和棋'}
-                  </span>
-                </div>
-              </>
-            ) : (
-              <div className="hint">正在数子…</div>
+      <aside className="side match-side">
+        {game?.status === 'finished' && game.result && !editing && (
+          <section className="panel match-result" aria-label="对局结算">
+            <h2 className="result-text">{game.result.text}</h2>
+            {settlement?.counted ? (
+              <p className="hint">
+                已计入进度{settlement.levelCn ? ` · ${settlement.levelCn}` : ''}
+                {settlement.deltaR ? ` · ${settlement.deltaR > 0 ? '+' : ''}${settlement.deltaR}` : ''}
+                {settlement.levelChange === 'up' ? ' · 升一级' : settlement.levelChange === 'down' ? ' · 降一级' : ''}
+              </p>
+            ) : <p className="hint">{settlement?.reason ?? (mode === 'ranked' ? '正在读取结算…' : '这盘不计入进度')}</p>}
+            {Math.abs(settlement?.streak ?? 0) >= 2 && (
+              <p className="hint">{cnNumber(settlement!.streak!)}{settlement!.streak! > 0 ? '连胜' : '连败'}</p>
             )}
-            <div className="hint" style={{ marginTop: 10 }}>
-              棋盘上的死子点一下整块标死（红叉），再点取消。已标 {deadStones.length} 子。
-              不标死子，数目会偏。
-            </div>
-            <div className="controls" style={{ marginTop: 10 }}>
-              <button className="btn btn-primary" onClick={() => void doFinish()}>
-                确认结算
-              </button>
-              {caps.allowUndo && (
-                <button className="btn" onClick={() => void doUndo()}>
-                  撤销停手
+            {settlement?.notes?.length ? <details className="screen-details"><summary>结算详情</summary><p className="hint">{settlement.notes.join('，')}</p></details> : null}
+            <div className="controls match-result-actions">
+              {canTeach && !review && (
+                <button className="btn btn-primary" disabled={busy || reviewing || startingTeaching || teachingRunning} onClick={() => void openTeaching()}>
+                  {startingTeaching || teachingRunning ? 'KataGo 正在挑选…' : '看一手，试一次'}
                 </button>
               )}
+              <button className={canTeach && !review ? 'btn' : 'btn btn-primary'} disabled={busy || startingTeaching || teachingRunning} onClick={initialGame ? onBack : () => void startGame(null)}>
+                {initialGame ? '准备下一局' : '再来一局'}
+              </button>
+              {!review && <button className="btn" onClick={() => void startReview()} disabled={busy || reviewing || startingTeaching || teachingRunning || !game.moves.length}>
+                {reviewing ? '正在复盘…' : '复盘'}
+              </button>}
+              <button className="btn" onClick={() => void exit()}>返回</button>
             </div>
+            {teaching?.phase === 'running' && (
+              <p className="hint" role="status">{teaching.total > 0 && teaching.done < teaching.total
+                ? `正在检查你下过的棋 · ${teaching.done} / ${teaching.total}`
+                : '正在比较实战着法和推荐变化…'}</p>
+            )}
+            {teaching?.phase === 'unavailable' && <p className="hint" role="status">{teaching.reason}</p>}
+            {settlement?.pendingPromotion && game.level > STRONGEST_LEVEL && (
+              <div className="controls match-result-actions">
+                <button className="btn" disabled={busy || reviewing} onClick={() => void startGame(game.level - 1)}>考核 · 升一级</button>
+                {game.level - 2 >= STRONGEST_LEVEL && <button className="btn" disabled={busy || reviewing} onClick={() => void startGame(game.level - 2)}>考核 · 升两级</button>}
+              </div>
+            )}
           </section>
         )}
 
-        {isPlacement && game && (
-          <div className="notice">
-            定级赛 第 {bootstrap.progress.placement.stage + 1} 盘 · 对手 {levelCn(game.level)}
-            <br />
-            <span className="hint">
-              三盘自适应定级，前 10 盘为暂定级。下完才知道你在哪一级，不用挑难度。
-            </span>
-          </div>
-        )}
-
-        <section className="panel">
-          <div className="panel-head">
-            <span className="panel-title">对局</span>
-            <span className="panel-sub">
-              {game ? `${game.size} 路 · 贴 ${game.komi} 目` : '—'}
-            </span>
-          </div>
-          <div className="stat-row">
-            <span className="stat-key">提子（黑/白）</span>
-            <span className="stat-val">
-              {game ? `${game.captures.W} / ${game.captures.B}` : '—'}
-            </span>
-          </div>
-          <div className="stat-row">
-            <span className="stat-key">手数</span>
-            <span className="stat-val">{game?.moves.length ?? 0}</span>
-          </div>
-          {opponent === 'offline' && (
-            <div className="hint" style={{ marginTop: 8 }}>
-              当前是<strong>离线对手</strong>（程序自带启发式陪练，不是 KataGo）。装上引擎后会自动换成真对手；
-              自定义的等级难度在离线模式下只是粗略近似。
-            </div>
-          )}
-
-          <div className="controls" style={{ marginTop: 12 }}>
-            <button className="btn" onClick={doPass} disabled={!humanTurn}>
-              停一手
-            </button>
-            <button
-              className="btn"
-              onClick={doUndo}
-              disabled={!caps.allowUndo || !game || game.moves.length === 0}
-              title={caps.allowUndo ? '退回上一手（AI 会重算）' : CAP_NOTES.allowUndo}
-            >
-              悔棋
-            </button>
-            <button className="btn" onClick={() => void doRedo()} disabled={!caps.allowUndo || !game?.canRedo}>
-              重做
-            </button>
-            {mode === 'free' && (
-              <button className="btn" onClick={doEnd} disabled={!game || game.status !== 'playing'}>
-                终局数子
-              </button>
-            )}
-            <button className="btn" onClick={doResign} disabled={!game || game.status !== 'playing'}>
-              认输
-            </button>
-            {game && game.moves.length > 0 && !review && (
-              <button className="btn" onClick={() => void startReview()} disabled={reviewing}>
-                {game.status === 'finished' ? '复盘 / 曲线' : '形势曲线'}
-              </button>
-            )}
-          </div>
-          {!caps.allowUndo && <div className="hint" style={{ marginTop: 8 }}>{CAP_NOTES.allowUndo}。</div>}
-        </section>
-
-        {reviewing && !review && (
-          <div className="notice">
-            正在复盘：引擎要逐手重算一遍，19 路大约 1~3 分钟，可以先去倒杯水。
-          </div>
-        )}
-
+        {reviewing && !review && <div className="notice" role="status">正在分析棋局…</div>}
         {review && game ? (
           <ReviewPanel
             result={review.result}
             ply={review.ply}
             moves={game.moves}
-            onPick={(ply) => setReview((r) => (r ? { ...r, ply } : r))}
-            onExit={() => setReview(null)}
-            onCancel={() => {
-              reviewCancelled.current = true;
-            }}
+            onPick={(ply) => setReview((current) => current && { ...current, ply })}
+            onExit={() => { reviewDismissed.current = true; setReview(null); }}
+            onCancel={() => { reviewCancelled.current = true; }}
           />
         ) : (
-        <AnalysisPanel
-          caps={caps}
-          analysis={analysis}
-          unavailableReason={analysisReason}
-          loading={analyzing}
-          showOwnership={showOwnership}
-          onToggleOwnership={() => setShowOwnership((v) => !v)}
-          onHover={(v) => {
-            if (v === null) {
-              setHoverPv(null);
-              return;
-            }
-            const cand = analysis?.candidates.find((c) => c.vertex === v) ?? null;
-            setHoverPv(cand);
-          }}
-          onPick={(v) => void play(v)}
-          canPlay={humanTurn && !review}
-        />
+          <>
+            <div className="screen-tabs" role="group" aria-label="棋局侧栏">
+              <button className="btn" aria-pressed={activePane === 'game'} onClick={() => setPane('game')}>对局</button>
+              {caps.allowAnalysis && game?.status === 'playing' && <button className="btn" aria-pressed={activePane === 'analysis'} onClick={() => setPane('analysis')}>形势</button>}
+              <button className="btn" aria-pressed={activePane === 'moves'} onClick={() => setPane('moves')}>手数</button>
+            </div>
+            {activePane === 'game' && <section className="panel">
+              <div className="panel-head"><span className="panel-title">对局</span><span className="panel-sub">{game ? `${game.size} 路 · 贴 ${game.komi} 目` : '—'}</span></div>
+              <div className="stat-row"><span className="stat-key">提子（黑 / 白）</span><span className="stat-val">{game ? `${game.captures.W} / ${game.captures.B}` : '—'}</span></div>
+              <div className="stat-row"><span className="stat-key">手数</span><span className="stat-val">{game?.moves.length ?? 0}</span></div>
+              {placementStage !== null && game && game.status !== 'finished' && <p className="hint">定级赛第 {placementStage + 1} 盘 · 对手 {levelCn(game.level)}</p>}
+              {opponent === 'offline' && <p className="hint">当前使用离线对手。离线难度为粗略近似。</p>}
+              {!caps.allowUndo && <p className="hint">{CAP_NOTES.allowUndo}。</p>}
+            </section>}
+            {activePane === 'analysis' && caps.allowAnalysis && (
+              <>
+                <AnalysisPanel
+                  caps={caps}
+                  analysis={analysis}
+                  unavailableReason={analysisReason}
+                  loading={analyzing}
+                  showOwnership={showOwnership}
+                  onToggleOwnership={() => setShowOwnership((value) => !value)}
+                  onHover={(vertex) => setHoverPv(analysis?.candidates.find((candidate) => candidate.vertex === vertex) ?? null)}
+                  onPick={(vertex) => void play(vertex)}
+                  canPlay={humanTurn}
+                />
+                <div className="controls">
+                  <select aria-label="假设对手水平" value={assumeDelta} onChange={(event) => setAssumeDelta(Number(event.target.value))}>
+                    <option value={0}>假设：同水平</option>
+                    <option value={-3}>假设：弱 3 级</option>
+                    <option value={-6}>假设：弱 6 级</option>
+                    <option value={3}>假设：强 3 级</option>
+                  </select>
+                  {Boolean(game?.moves.length) && <button className="btn" disabled={reviewing} onClick={() => void startReview()}>形势曲线</button>}
+                </div>
+              </>
+            )}
+            {activePane === 'moves' && (
+              <MoveList size={game?.size ?? 19} moves={game?.moves ?? []}
+                onJump={caps.allowUndo && game?.status === 'playing' ? (ply) => void api.undo(game.id, ply).then(applyResponse).catch(() => undefined) : undefined} />
+            )}
+            {mode === 'free' && <details className="panel screen-details match-setup" ref={setupDetails}>
+              <summary>新局设置</summary>
+              <div className="field">
+                <label htmlFor="match-size">棋盘</label>
+                <select id="match-size" value={setup.size} onChange={(event) => setSetup({ ...setup, size: Number(event.target.value) as Setup['size'] })}>
+                  <option value={9}>9 路</option><option value={13}>13 路</option><option value={19}>19 路</option>
+                </select>
+              </div>
+              <div className="field">
+                <label htmlFor="match-level">难度</label>
+                <select id="match-level" value={setup.level} onChange={(event) => setSetup({ ...setup, level: Number(event.target.value) })}>
+                  {Array.from({ length: bootstrap.progress.maxLevel }, (_, i) => bootstrap.progress.maxLevel - i).map((level) =>
+                    <option key={level} value={level}>{levelCn(level)}</option>
+                  )}
+                </select>
+              </div>
+              <div className="field">
+                <label htmlFor="match-handicap">让子</label>
+                <select id="match-handicap" value={setup.handicap} onChange={(event) => setSetup({ ...setup, handicap: Number(event.target.value) })}>
+                  <option value={0}>不让子</option>
+                  {[2, 3, 4, 5, 6, 7, 8, 9].map((n) => <option key={n} value={n}>让 {n} 子</option>)}
+                </select>
+              </div>
+              <div className="field">
+                <label htmlFor="match-clock">时间</label>
+                <select id="match-clock" value={setup.timePreset} onChange={(event) => setSetup({ ...setup, timePreset: event.target.value as TimePresetId })}>
+                  {TIME_PRESETS.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
+                </select>
+              </div>
+              {setup.handicap >= 2 && <p className="hint">让子局白先，贴 0.5 目。</p>}
+              <div className="controls">
+                <button className="btn btn-primary" onClick={() => void startGame(null)} disabled={busy || reviewing}>开始新对局</button>
+                <button className="btn" onClick={enterEdit} disabled={busy || reviewing}>{editing ? '退出摆棋' : '摆棋'}</button>
+                <button className="btn" onClick={() => sgfInput.current?.click()} disabled={busy || reviewing}>导入棋谱</button>
+                <input ref={sgfInput} type="file" accept=".sgf,application/x-go-sgf" hidden onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) void importSgf(file);
+                  event.target.value = '';
+                }} />
+              </div>
+            </details>}
+          </>
         )}
-
-        <MoveList
-          size={game?.size ?? 19}
-          moves={game?.moves ?? []}
-          onJump={caps.allowUndo && game ? (ply) => void api.undo(game.id, ply).then(applyResponse).catch(() => undefined) : undefined}
-        />
-
-        <div className="hint" style={{ textAlign: 'center' }}>
-          快捷键：F 形势图 · Esc 关闭结算
-        </div>
       </aside>
-
-      {showResult && game?.status === 'finished' && game.result && (
-        <div className="overlay" onClick={() => setShowResult(false)}>
-          <div className="result-card" onClick={(e) => e.stopPropagation()}>
-            <div className="hint" style={{ letterSpacing: '.2em' }}>
-              {MODE_NAMES[mode]}
-            </div>
-            <div className="result-text">{game.result.text}</div>
-            {(settlement?.streak ?? 0) >= 2 && <div className="result-line">{cnNumber(settlement!.streak!)}连胜</div>}
-            {(settlement?.streak ?? 0) <= -2 && <div className="result-line">{cnNumber(settlement!.streak!)}连败</div>}
-            {settlement?.counted ? (
-              <div className="result-line">
-                已计入进度
-                {typeof settlement.deltaR === 'number' && settlement.deltaR !== 0
-                  ? ` · ${settlement.deltaR > 0 ? '+' : ''}${settlement.deltaR}`
-                  : ''}
-                {settlement.levelChange === 'up' ? ' · 升一级' : settlement.levelChange === 'down' ? ' · 降一级' : ''}
-              </div>
-            ) : (
-              <div className="result-line">{settlement?.reason ?? '这盘不计入进度'}</div>
-            )}
-            {settlement?.levelCn && <div className="result-line">{settlement.levelCn}</div>}
-            {settlement?.notes?.length ? <div className="hint">{settlement.notes.join('；')}</div> : null}
-
-            {settlement?.pendingPromotion && game.level < bootstrap.progress.maxLevel && (
-              <div className="result-actions" style={{ marginTop: 6 }}>
-                <button
-                  className="result-link"
-                  onClick={() => void startGame(Math.min(bootstrap.progress.maxLevel, game.level + 1))}
-                >
-                  考核 · 升一级 →
-                </button>
-                {game.level + 2 <= bootstrap.progress.maxLevel && (
-                  <button className="result-link" onClick={() => void startGame(game.level + 2)}>
-                    考核 · 升两级 →
-                  </button>
-                )}
-              </div>
-            )}
-
-            <div className="result-actions">
-              <button className="btn" onClick={() => void startReview()} disabled={reviewing}>
-                {reviewing ? '复盘计算中…' : '复盘'}
-              </button>
-              <button className="btn btn-primary" onClick={() => void startGame(null)}>
-                再来一局
-              </button>
-              <button className="btn" onClick={() => void exit()}>
-                返回
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

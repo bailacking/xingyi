@@ -1,10 +1,9 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import os from 'node:os';
-import { APP_NAME, APP_NAME_EN, APP_VERSION, BOARD_SIZES, CAPS, type Mode } from '@xingyi/shared';
+import { APP_NAME, APP_NAME_EN, APP_VERSION, BOARD_SIZES, CAPS, type Mode, type TimeControl } from '@xingyi/shared';
 import { toSgf } from './sgf.js';
 import { GameService, ServiceError } from './gameService.js';
 import { discoverRooms } from './discovery.js';
-import { checkJoseki, getJoseki, listJoseki } from './joseki.js';
 import { dataPaths, type DataPaths } from './paths.js';
 import { ThemePackError, ThemePackStore } from './themePack.js';
 
@@ -14,6 +13,25 @@ function body<T>(req: FastifyRequest): T {
 
 function snapshotOf(m: ReturnType<GameService['getMatch']>) {
   return { snapshot: m.snapshot(), settlement: m.settlement ?? null };
+}
+
+function roomClientId(value: unknown): string {
+  if (typeof value !== 'string' || !/^[a-f0-9]{32}$/.test(value)) {
+    throw new ServiceError(400, '房间身份无效，请刷新页面后重试');
+  }
+  return value;
+}
+
+function roomTime(value: TimeControl | null | undefined): TimeControl | null | undefined {
+  if (value == null) return value;
+  const { mainSec, byoYomiSec, periods } = value;
+  if (!Number.isInteger(mainSec) || mainSec < 0 || mainSec > 7200 ||
+      !Number.isInteger(byoYomiSec) || byoYomiSec < 0 || byoYomiSec > 120 ||
+      !Number.isInteger(periods) || periods < 0 || periods > 10 ||
+      (periods > 0 ? byoYomiSec === 0 : mainSec === 0 || byoYomiSec !== 0)) {
+    throw new ServiceError(400, '房间时间制无效，请选择有效的主时间和读秒');
+  }
+  return value;
 }
 
 /**
@@ -33,6 +51,7 @@ function themeError(err: unknown): never {
 }
 
 export function registerRoutes(app: FastifyInstance, service: GameService): void {
+  app.get('/api/lan', async () => ({ available: true }));
   app.get('/api/health', async () => ({
     ok: true,
     name: APP_NAME,
@@ -62,6 +81,8 @@ export function registerRoutes(app: FastifyInstance, service: GameService): void
   app.post('/api/engine/probe', async () => service.probeHardware());
   app.post('/api/engine/check', async () => service.checkEngine());
   app.post('/api/engine/restart', async () => service.restartEngine());
+  app.get('/api/engine/install', async () => service.engineInstallStatus());
+  app.post('/api/engine/install', async () => service.startEngineInstall());
 
   app.post('/api/game', async (req) => {
     const b = body<{
@@ -71,8 +92,10 @@ export function registerRoutes(app: FastifyInstance, service: GameService): void
       level?: number;
       playerColor?: 'B' | 'W';
       examLevel?: number;
+      saveId?: string | null;
       handicap?: number;
       timeControl?: { mainSec: number; byoYomiSec: number; periods: number } | null;
+      fromLesson?: boolean;
     }>(req);
     const mode = (b.mode ?? 'free') as Mode;
     const match = service.createMatch({
@@ -82,13 +105,16 @@ export function registerRoutes(app: FastifyInstance, service: GameService): void
       level: b.level,
       playerColor: b.playerColor,
       examLevel: b.examLevel ?? null,
+      saveId: b.saveId,
       handicap: b.handicap,
       timeControl: b.timeControl,
+      fromLesson: b.fromLesson === true,
     });
     return {
       ...snapshotOf(match),
       opponent: match.opponent,
       isPlacement: match.isPlacement,
+      placementStage: match.isPlacement ? service.progress.placement.stage : null,
       examLevel: match.examLevel,
     };
   });
@@ -102,18 +128,6 @@ export function registerRoutes(app: FastifyInstance, service: GameService): void
     if (b.grid.some((c) => c !== 0 && c !== 1 && c !== 2)) throw new ServiceError(400, '盘面里只有黑白空三种格子');
     const match = service.createFromSetup(b.size, b.grid, b.toPlay ?? 'B', b.komi ?? 7.5);
     return { ...snapshotOf(match), opponent: match.opponent, isPlacement: false, examLevel: null };
-  });
-
-  // ---------------- 定式（W1） ----------------
-
-  app.get('/api/joseki', async () => ({ joseki: listJoseki() }));
-
-  app.get<{ Params: { id: string } }>('/api/joseki/:id', async (req) => getJoseki(req.params.id));
-
-  /** 判一手：{ step, vertex } → { correct, expected?, done, ... }；expected 是 GTP 坐标。 */
-  app.post<{ Params: { id: string } }>('/api/joseki/:id/check', async (req) => {
-    const b = body<{ step?: number; vertex?: number }>(req);
-    return checkJoseki(req.params.id, Number(b.step), Number(b.vertex));
   });
 
   // ---------------- 主题包（W4） ----------------
@@ -166,7 +180,7 @@ export function registerRoutes(app: FastifyInstance, service: GameService): void
 
   // ---------------- 手谈（联机房间） ----------------
 
-  app.post('/api/room', async (req) => {
+  app.post('/api/room', { bodyLimit: 8192 }, async (req) => {
     const b = body<{
       size?: 9 | 13 | 19;
       komi?: number;
@@ -177,30 +191,28 @@ export function registerRoutes(app: FastifyInstance, service: GameService): void
       /** 让子 2~9 */
       handicap?: number;
     }>(req);
-    if (!b.clientId) throw new ServiceError(400, '缺少客户端标识');
     return service.createRoom({
       size: b.size,
       komi: b.komi,
-      name: b.name,
-      clientId: b.clientId,
-      timeControl: b.timeControl,
+      name: typeof b.name === 'string' ? b.name : undefined,
+      clientId: roomClientId(b.clientId),
+      timeControl: roomTime(b.timeControl),
       handicap: b.handicap,
     });
   });
 
   /** 房主在等人阶段改设置：{ clientId, timeControl?, handicap? }；开局后 400 */
-  app.post<{ Params: { code: string } }>('/api/room/:code/settings', async (req) => {
+  app.post<{ Params: { code: string } }>('/api/room/:code/settings', { bodyLimit: 8192 }, async (req) => {
     const b = body<{
       clientId?: string;
       timeControl?: { mainSec: number; byoYomiSec: number; periods: number } | null;
       handicap?: number;
     }>(req);
-    if (!b.clientId) throw new ServiceError(400, '缺少客户端标识');
     if (b.timeControl === undefined && b.handicap === undefined) {
       throw new ServiceError(400, '没有要改的设置（timeControl / handicap 至少给一个）');
     }
-    const room = service.updateRoomSettings(req.params.code, b.clientId, {
-      timeControl: b.timeControl,
+    const room = service.updateRoomSettings(req.params.code, roomClientId(b.clientId), {
+      timeControl: roomTime(b.timeControl),
       handicap: b.handicap,
     });
     return { room: room.snapshot(), chat: room.chat };
@@ -223,15 +235,19 @@ export function registerRoutes(app: FastifyInstance, service: GameService): void
       return 2;
     };
     addresses.sort((a, b) => score(a) - score(b));
-    return { addresses };
+    const listener = app.server.address();
+    return { addresses, port: listener && typeof listener !== 'string' ? listener.port : null };
   });
 
-  app.get('/api/room/discover', async () => ({ rooms: await discoverRooms() }));
+  let discovery: ReturnType<typeof discoverRooms> | undefined;
+  app.get('/api/room/discover', async () => {
+    discovery ??= discoverRooms().finally(() => { discovery = undefined; });
+    return { rooms: await discovery };
+  });
 
-  app.post<{ Params: { code: string } }>('/api/room/:code/join', async (req) => {
+  app.post<{ Params: { code: string } }>('/api/room/:code/join', { bodyLimit: 8192 }, async (req) => {
     const b = body<{ name?: string; clientId?: string }>(req);
-    if (!b.clientId) throw new ServiceError(400, '缺少客户端标识');
-    return service.joinRoom(req.params.code, { name: b.name, clientId: b.clientId });
+    return service.joinRoom(req.params.code, { name: typeof b.name === 'string' ? b.name : undefined, clientId: roomClientId(b.clientId) });
   });
 
   app.get<{ Params: { code: string } }>('/api/room/:code', async (req) => {
@@ -239,23 +255,40 @@ export function registerRoutes(app: FastifyInstance, service: GameService): void
     return { room: room.snapshot(), chat: room.chat };
   });
 
-  app.post<{ Params: { code: string } }>('/api/room/:code/action', async (req) => {
+  app.post<{ Params: { code: string } }>('/api/room/:code/action', { bodyLimit: 8192 }, async (req) => {
     const b = body<{ clientId?: string; action?: string; vertex?: number }>(req);
     const allowed = ['move', 'pass', 'resign', 'undo', 'undo-yes', 'undo-no', 'leave'] as const;
     type Action = (typeof allowed)[number];
     if (!b.action || !allowed.includes(b.action as Action)) throw new ServiceError(400, '未知操作');
-    const room = service.roomAction(req.params.code, b.clientId ?? '', b.action as Action, { vertex: b.vertex });
+    if (b.action === 'move' && (!Number.isInteger(b.vertex) || b.vertex! < 0)) throw new ServiceError(400, '落子位置无效');
+    const room = service.roomAction(req.params.code, roomClientId(b.clientId), b.action as Action, { vertex: b.vertex });
     return { room: room.snapshot(), chat: room.chat };
   });
 
-  app.post<{ Params: { code: string } }>('/api/room/:code/chat', async (req) => {
+  app.post<{ Params: { code: string } }>('/api/room/:code/chat', { bodyLimit: 8192 }, async (req) => {
     const b = body<{ clientId?: string; text?: string }>(req);
-    if (!b.clientId) throw new ServiceError(400, '缺少客户端标识');
-    const room = service.roomChat(req.params.code, b.clientId, String(b.text ?? ''));
+    const room = service.roomChat(req.params.code, roomClientId(b.clientId), typeof b.text === 'string' ? b.text : '');
     return { room: room.snapshot(), chat: room.chat };
   });
 
   app.get('/api/matches', async () => service.listMatches());
+
+  app.get('/api/mistakes', async () => service.listMistakes());
+  app.put<{ Params: { gameId: string } }>('/api/mistakes/:gameId', async (req) =>
+    service.saveMistake(req.params.gameId, body<{ source?: string }>(req).source === 'katago'),
+  );
+  app.put<{ Params: { gameId: string } }>('/api/mistakes/:gameId/practice', async (req) => {
+    const b = body<{ vertex?: number }>(req);
+    if (typeof b.vertex !== 'number') throw new ServiceError(400, '请先在棋盘上重下一手');
+    return service.practiceMistake(req.params.gameId, b.vertex);
+  });
+  app.post<{ Params: { gameId: string } }>('/api/mistakes/:gameId/practice', async (req) =>
+    service.tryTeachingMove(req.params.gameId, body<{ vertex: number }>(req).vertex, true),
+  );
+  app.delete<{ Params: { gameId: string } }>('/api/mistakes/:gameId', async (req, reply) => {
+    service.removeMistake(req.params.gameId);
+    return reply.code(204).send();
+  });
 
   app.get<{ Params: { id: string } }>('/api/game/:id', async (req) => {
     const m = service.getMatch(req.params.id);
@@ -293,7 +326,7 @@ export function registerRoutes(app: FastifyInstance, service: GameService): void
 
   app.post<{ Params: { id: string } }>('/api/game/:id/finish', async (req) => {
     const b = body<{ dead?: number[] }>(req);
-    const m = service.finishScored(req.params.id, Array.isArray(b.dead) ? b.dead : []);
+    const m = await service.finishScored(req.params.id, Array.isArray(b.dead) ? b.dead : []);
     return snapshotOf(m);
   });
 
@@ -303,6 +336,11 @@ export function registerRoutes(app: FastifyInstance, service: GameService): void
   });
 
   app.post<{ Params: { id: string } }>('/api/game/:id/review', async (req) => service.review(req.params.id));
+  app.get<{ Params: { id: string } }>('/api/game/:id/teaching-review', async (req) => service.teachingReviewStatus(req.params.id));
+  app.post<{ Params: { id: string } }>('/api/game/:id/teaching-review', async (req) => service.startTeachingReview(req.params.id));
+  app.post<{ Params: { id: string } }>('/api/game/:id/teaching-review/try', async (req) =>
+    service.tryTeachingMove(req.params.id, body<{ vertex: number }>(req).vertex, false),
+  );
 
   // 复盘是分块算的：POST /review 每叫一次推进一块并返回进度，这个路由只负责喊停
   app.post<{ Params: { id: string } }>('/api/game/:id/review/cancel', async (req) =>
@@ -311,6 +349,7 @@ export function registerRoutes(app: FastifyInstance, service: GameService): void
 
   app.get<{ Params: { id: string } }>('/api/game/:id/sgf', async (req, reply: FastifyReply) => {
     const m = service.getMatch(req.params.id);
+    if (!CAPS[m.mode].allowAnalysis && !m.finished) throw new ServiceError(403, '修习结束后才能导出棋谱');
     const sgf = toSgf({
       size: m.size,
       komi: m.game.komi,
@@ -334,6 +373,16 @@ export function registerRoutes(app: FastifyInstance, service: GameService): void
   });
 
   app.get('/api/progress', async () => service.progressSummary());
+
+  app.get('/api/saves', async () => service.listSaves());
+  app.post('/api/saves', async (req) => service.createSave(body<{ name?: string }>(req).name));
+  app.post<{ Params: { id: string } }>('/api/saves/:id/activate', async (req) => service.selectSave(req.params.id));
+  app.delete<{ Params: { id: string } }>('/api/saves/:id', async (req) => service.deleteSave(req.params.id));
+  app.get<{ Params: { id: string } }>('/api/saves/:id/export', async (req, reply) => {
+    const archive = service.exportProgress(req.params.id);
+    reply.header('content-disposition', `attachment; filename="xingyi-save-${req.params.id}.json"`);
+    return archive;
+  });
 
   app.get('/api/progress/export', async (_req, reply: FastifyReply) => {
     reply.header('content-type', 'application/json; charset=utf-8');

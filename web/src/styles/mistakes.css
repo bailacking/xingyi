@@ -1,0 +1,9 @@
+.mistake-notebook .learn-inner { width: min(100%, 780px); }
+.mistake-notebook .learn-header { margin-bottom: 16px; }
+.mistake-list { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.mistake-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 20px; }
+.mistake-row h2 { margin: 0; font-size: 17px; }
+.mistake-row p { margin: 4px 0 0; }
+.mistake-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.mistake-actions .btn { min-height: 42px; }
+.learn-header .learn-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; }

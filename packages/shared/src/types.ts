@@ -116,6 +116,45 @@ export interface MoveRecord {
   name?: string;
 }
 
+export type FirstGameExerciseKind = 'save' | 'capture' | 'connect' | 'katago';
+export type ExerciseMove = Pick<MoveRecord, 'color' | 'vertex'>;
+
+export interface FirstGameExercise {
+  kind: FirstGameExerciseKind;
+  size: BoardSize;
+  komi: number;
+  /** 保留落子前的棋谱，用于还原轮次与劫争。 */
+  prefix: ExerciseMove[];
+  original: [ExerciseMove, ...ExerciseMove[]];
+  stones: Vertex[];
+  answer: Vertex;
+  /** 同一局面从落子方看，两个首着分别搜索所得的目差与变化。 */
+  comparison?: {
+    played: number;
+    suggested: number;
+    variation: ExerciseMove[];
+    alternatives: Vertex[];
+  };
+}
+
+export interface SavedMistake {
+  gameId: string;
+  savedAt: string;
+  lastPracticedAt: string | null;
+  exercise: FirstGameExercise;
+}
+
+export interface TeachingAttempt {
+  lead: number;
+  closeToSuggested: boolean;
+  variation: ExerciseMove[];
+}
+
+export type TeachingReviewStatus =
+  | { phase: 'running'; done: number; total: number }
+  | { phase: 'ready'; exercise: FirstGameExercise; saved: boolean }
+  | { phase: 'unavailable'; reason: string };
+
 export type GameStatus = 'playing' | 'scoring' | 'finished';
 export type EndReason = 'score' | 'resign' | 'quit' | 'timeout' | 'draw' | 'engine';
 
@@ -316,7 +355,12 @@ export interface AnalysisResult {
 
 // ---------------------------------------------------------------- 引擎
 
-export type Backend = 'cuda' | 'opencl' | 'eigen';
+export type Backend = 'cuda' | 'opencl' | 'directml' | 'eigen';
+
+export interface EngineInstallStatus {
+  phase: 'idle' | 'detecting' | 'downloading' | 'checking' | 'ready' | 'failed';
+  message: string;
+}
 export type EngineState =
   | 'unconfigured'
   | 'starting'

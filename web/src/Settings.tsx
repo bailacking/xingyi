@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { SaveManager } from './SaveManager';
 import type { CSSProperties } from 'react';
 import { api, ApiError, type Bootstrap } from './api';
 import { SOUND_PACKS, configureSound, previewPack } from './sound';
@@ -6,9 +7,15 @@ import { SKINS, cssVars, type Skin } from './theme/skins';
 import { exportThemeUrl, importThemeFile, syncThemes } from './theme/packs';
 import type { AppConfigLike } from './types';
 
+const SETTINGS_SECTIONS = [
+  ['engine', '引擎'], ['appearance', '界面'], ['sound', '音效'], ['saves', '存档'], ['about', '关于'],
+] as const;
+type SettingsSection = typeof SETTINGS_SECTIONS[number][0];
+
 interface SettingsProps {
   bootstrap: Bootstrap;
   themeId: string;
+  initialSection?: 'saves' | null;
   onTheme: (id: string) => void;
   onBack: () => void;
   onBootstrap: (b: Bootstrap) => void;
@@ -77,7 +84,8 @@ function ThemePreview({ skin }: { skin: Skin }) {
   );
 }
 
-export function Settings({ bootstrap, themeId, onTheme, onBack, onBootstrap }: SettingsProps) {
+export function Settings({ bootstrap, themeId, initialSection, onTheme, onBack, onBootstrap }: SettingsProps) {
+  const [section, setSection] = useState<SettingsSection>(initialSection ?? 'engine');
   const [engine, setEngine] = useState<AppConfigLike['engine']>(bootstrap.config.engine);
   const [ui, setUi] = useState<AppConfigLike['ui']>(bootstrap.config.ui);
   const [name, setName] = useState(bootstrap.progress.playerName);
@@ -85,6 +93,9 @@ export function Settings({ bootstrap, themeId, onTheme, onBack, onBootstrap }: S
   const [check, setCheck] = useState<{ label: string; ok: boolean; message: string }[] | null>(null);
   const [engineState, setEngineState] = useState(bootstrap.engine);
   const [busy, setBusy] = useState<string | null>(null);
+  const [install, setInstall] = useState<Awaited<ReturnType<typeof api.engineInstallStatus>> | null>(null);
+  const [installError, setInstallError] = useState('');
+  const installing = install?.phase === 'detecting' || install?.phase === 'downloading' || install?.phase === 'checking';
   const [msg, setMsg] = useState<string | null>(null);
   const [sim, setSim] = useState<Awaited<ReturnType<typeof api.simulateRanked>> | null>(null);
   // 主题面板：列表用本地状态（SKINS 是可变数组，导入后要触发一次渲染）
@@ -131,11 +142,48 @@ export function Settings({ bootstrap, themeId, onTheme, onBack, onBootstrap }: S
     setUi(bootstrap.config.ui);
   }, [bootstrap]);
 
+  useEffect(() => { setName(bootstrap.progress.playerName); }, [bootstrap.progress.playerName, bootstrap.progress.activeSaveId]);
+
   const refresh = async () => {
     try {
       onBootstrap(await api.bootstrap());
     } catch {
       /* 忽略 */
+    }
+  };
+
+  useEffect(() => {
+    let active = true;
+    let timer: number | undefined;
+    const poll = async () => {
+      try {
+        const status = await api.engineInstallStatus();
+        if (!active) return;
+        setInstall(status);
+        if (status.phase === 'ready') {
+          const updated = await api.bootstrap();
+          if (active) onBootstrap(updated);
+        }
+        if (['detecting', 'downloading', 'checking'].includes(status.phase)) timer = window.setTimeout(() => void poll(), 1000);
+      } catch {
+        if (active) timer = window.setTimeout(() => void poll(), 2000);
+      }
+    };
+    if (section === 'engine') void poll();
+    return () => { active = false; window.clearTimeout(timer); };
+  // 新的安装任务会恢复轮询。
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [section, installing]);
+
+  const installKataGo = async () => {
+    setBusy('install');
+    setInstallError('');
+    try {
+      setInstall(await api.installEngine());
+    } catch (error) {
+      setInstallError(error instanceof ApiError ? error.message : '无法开始安装，请重试。');
+    } finally {
+      setBusy(null);
     }
   };
 
@@ -201,27 +249,34 @@ export function Settings({ bootstrap, themeId, onTheme, onBack, onBootstrap }: S
 
   const backendLabels: Record<string, string> = {
     cuda: 'CUDA（NVIDIA 显卡，最快）',
+    directml: 'DirectML（兼容 DirectX 12 显卡）',
     opencl: 'OpenCL（任意显卡 / 核显）',
     eigen: 'Eigen（纯 CPU，极慢）',
   };
 
   return (
-    <div className="settings">
+    <div className="settings settings-screen">
       <div className="settings-inner">
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 16 }}>
+        <div className="settings-toolbar">
           <button className="linkish" onClick={onBack}>
             ← 返回
           </button>
           <h2>设置</h2>
           <span style={{ flex: 1 }} />
-          {msg && <span className="hint">{msg}</span>}
+          {msg && <span className="hint" role="status">{msg}</span>}
         </div>
 
-        <section className="panel">
+        <nav className="screen-tabs settings-nav" aria-label="设置分类">
+          {SETTINGS_SECTIONS.map(([id, label]) => (
+            <button key={id} className="btn" aria-pressed={section === id} onClick={() => setSection(id)}>{label}</button>
+          ))}
+        </nav>
+
+        <section className="panel" hidden={section !== 'engine'}>
           <div className="panel-head">
             <span className="panel-title">引擎</span>
             <span className="panel-sub">
-              {engineState.state === 'ready'
+              {['ready', 'thinking', 'analyzing'].includes(engineState.state)
                 ? `就绪 · ${engineState.version ?? '已连接'}`
                 : engineState.state === 'crashed'
                   ? '启动失败'
@@ -232,61 +287,77 @@ export function Settings({ bootstrap, themeId, onTheme, onBack, onBootstrap }: S
           </div>
           {engineState.error && <div className="notice hint-warn" style={{ marginBottom: 12 }}>{engineState.error}</div>}
 
-          <div className="field">
-            <label>katago 程序</label>
-            <input
-              type="text"
-              value={engine.binaryPath ?? ''}
-              placeholder="例如 D:\\katago\\katago.exe（Windows）或 /usr/local/bin/katago"
-              onChange={(e) => setEngine({ ...engine, binaryPath: e.target.value || null })}
-            />
-          </div>
-          <div className="field">
-            <label>主模型</label>
-            <input
-              type="text"
-              value={engine.modelPath ?? ''}
-              placeholder="b18c384nbt-*.bin.gz 的完整路径"
-              onChange={(e) => setEngine({ ...engine, modelPath: e.target.value || null })}
-            />
-          </div>
-          <div className="field">
-            <label>human SL 模型</label>
-            <input
-              type="text"
-              value={engine.humanModelPath ?? ''}
-              placeholder="b18c384nbt-humanv0.bin.gz（1~11 级必需，不填就只能靠低 visits）"
-              onChange={(e) => setEngine({ ...engine, humanModelPath: e.target.value || null })}
-            />
-          </div>
-          <div className="field">
-            <label>配置文件</label>
-            <input
-              type="text"
-              value={engine.configPath ?? ''}
-              placeholder="gtp_xingyi_cuda.cfg（可留空，用默认参数启动）"
-              onChange={(e) => setEngine({ ...engine, configPath: e.target.value || null })}
-            />
-          </div>
-          <div className="field">
-            <label>后端</label>
-            <select value={engine.backend} onChange={(e) => setEngine({ ...engine, backend: e.target.value as 'cuda' })}>
-              {Object.entries(backendLabels).map(([k, v]) => (
-                <option key={k} value={k}>
-                  {v}
-                </option>
-              ))}
-            </select>
-          </div>
+          {install?.supported && (
+            <div className="notice">
+              <button className="btn btn-primary" onClick={() => void installKataGo()} disabled={Boolean(busy) || installing
+                || (['ready', 'thinking', 'analyzing'].includes(engineState.state) && Boolean(engineState.humanModelPath))}>
+                {installing ? '正在安装 KataGo…' : install.phase === 'ready' ? 'KataGo 已安装' : '一键安装 KataGo'}
+              </button>
+              {install.phase !== 'ready' && <p className="hint">首次约需下载 200–220 MB。星弈会选择适合本机的版本，安装主模型和人类棋风模型。</p>}
+              {install.message && <p className={install.phase === 'failed' ? 'hint-warn' : 'hint'} role="status">{install.message}</p>}
+              {installError && <p className="hint-warn" role="alert">{installError}</p>}
+            </div>
+          )}
+          <div className="stat-row"><span className="stat-key">后端</span><strong>{backendLabels[engine.backend]}</strong></div>
+          <div className="stat-row"><span className="stat-key">模型</span><span>{engine.modelPath && engine.humanModelPath ? '已填写主模型与人类模型' : '请填写主模型和人类模型'}</span></div>
+          <details className="screen-details settings-paths" open={!bootstrap.config.engine.binaryPath || !bootstrap.config.engine.modelPath || !bootstrap.config.engine.humanModelPath || undefined}>
+            <summary>程序、模型路径与后端</summary>
+            <div className="field">
+              <label htmlFor="engine-binary">katago 程序</label>
+              <input id="engine-binary"
+                type="text"
+                value={engine.binaryPath ?? ''}
+                placeholder="例如 D:\\katago\\katago.exe（Windows）或 /usr/local/bin/katago"
+                onChange={(e) => setEngine({ ...engine, binaryPath: e.target.value || null })}
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="engine-main">主模型</label>
+              <input id="engine-main"
+                type="text"
+                value={engine.modelPath ?? ''}
+                placeholder="b18c384nbt-*.bin.gz 的完整路径"
+                onChange={(e) => setEngine({ ...engine, modelPath: e.target.value || null })}
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="engine-human">human SL 模型</label>
+              <input id="engine-human"
+                type="text"
+                value={engine.humanModelPath ?? ''}
+                placeholder="b18c384nbt-humanv0.bin.gz（修习必需）"
+                onChange={(e) => setEngine({ ...engine, humanModelPath: e.target.value || null })}
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="engine-config">配置文件</label>
+              <input id="engine-config"
+                type="text"
+                value={engine.configPath ?? ''}
+                placeholder="gtp_xingyi_cuda.cfg（可留空，用默认参数启动）"
+                onChange={(e) => setEngine({ ...engine, configPath: e.target.value || null })}
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="engine-backend">后端</label>
+              <select id="engine-backend" value={engine.backend} onChange={(e) => setEngine({ ...engine, backend: e.target.value as 'cuda' })}>
+                {Object.entries(backendLabels).map(([k, v]) => (
+                  <option key={k} value={k}>
+                    {v}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </details>
 
           <div className="controls" style={{ marginTop: 10 }}>
-            <button className="btn" onClick={() => void probe()} disabled={busy === 'probe'}>
+            <button className="btn" onClick={() => void probe()} disabled={Boolean(busy) || installing}>
               {busy === 'probe' ? '探测中…' : '探测硬件'}
             </button>
-            <button className="btn btn-primary" onClick={() => void runCheck()} disabled={busy === 'check'}>
+            <button className="btn btn-primary" onClick={() => void runCheck()} disabled={Boolean(busy) || installing}>
               {busy === 'check' ? '自检中…' : '保存并自检'}
             </button>
-            <button className="btn" onClick={() => void restart()} disabled={busy === 'restart'}>
+            <button className="btn" onClick={() => void restart()} disabled={Boolean(busy) || installing}>
               重启引擎
             </button>
           </div>
@@ -316,12 +387,11 @@ export function Settings({ bootstrap, themeId, onTheme, onBack, onBootstrap }: S
           )}
 
           <div className="hint" style={{ marginTop: 14 }}>
-            引擎与权重需自行下载（体积与许可证不适合放进仓库）。安装步骤见仓库 <code>docs/引擎安装.md</code>。
-            没有引擎也可以用「自在 + 离线对手」把棋盘和规则玩起来。
+            已有 KataGo 可在上方手动指定。安装说明见 <code>docs/引擎安装.md</code>。
           </div>
         </section>
 
-        <section className="panel">
+        <section className="panel" hidden={section !== 'appearance'}>
           <div className="panel-head">
             <span className="panel-title">主题</span>
             <span className="panel-sub">选中即预览，应用后 5 秒内可撤销</span>
@@ -392,9 +462,42 @@ export function Settings({ bootstrap, themeId, onTheme, onBack, onBootstrap }: S
             带 CSS 或 JS 的包会被直接拒绝，程序不执行主题里的任何代码。导入后立刻出现在上面。
           </div>
 
-          <div className="field" style={{ marginTop: 16 }}>
-            <label>音效</label>
-            <select
+          <div className="field">
+            <label htmlFor="settings-hover">落子虚影</label>
+            <select id="settings-hover"
+              value={ui.hoverMark}
+              onChange={(e) => {
+                const v = e.target.value as 'square' | 'ghost';
+                setUi({ ...ui, hoverMark: v });
+                void save({ ui: { ...ui, hoverMark: v } });
+              }}
+            >
+              <option value="square">小方块（默认，换主题都看得清）</option>
+              <option value="ghost">棋子虚影（拟真，浅色盘上偏淡）</option>
+            </select>
+          </div>
+          <div className="field">
+            <label htmlFor="settings-analysis">分析深度</label>
+            <select id="settings-analysis"
+              value={ui.analysisDepth}
+              onChange={(e) => {
+                const v = e.target.value as 'quick' | 'standard' | 'deep';
+                setUi({ ...ui, analysisDepth: v });
+                void save({ ui: { ...ui, analysisDepth: v } });
+              }}
+            >
+              <option value="quick">快速（约 0.3 秒）</option>
+              <option value="standard">标准（约 0.5~1.5 秒）</option>
+              <option value="deep">深算（数秒）</option>
+            </select>
+          </div>
+        </section>
+
+        <section className="panel" hidden={section !== 'sound'}>
+          <div className="panel-head"><span className="panel-title">音效</span></div>
+          <div className="field">
+            <label htmlFor="settings-sound">落子音效</label>
+            <select id="settings-sound"
               value={ui.sound ? 'on' : 'off'}
               onChange={(e) => {
                 const on = e.target.value === 'on';
@@ -431,9 +534,10 @@ export function Settings({ bootstrap, themeId, onTheme, onBack, onBootstrap }: S
             </div>
           </div>
           <div className="field">
-            <label>音量</label>
+            <label htmlFor="settings-volume">音量</label>
             <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
               <input
+                id="settings-volume"
                 type="range"
                 min={0}
                 max={100}
@@ -443,9 +547,14 @@ export function Settings({ bootstrap, themeId, onTheme, onBack, onBootstrap }: S
                   setUi({ ...ui, soundVolume: v });
                   configureSound({ volume: v });
                 }}
-                onMouseUp={(e) => {
+                onPointerUp={(e) => {
                   const v = Number((e.target as HTMLInputElement).value) / 100;
                   void save({ ui: { ...ui, soundVolume: v } });
+                }}
+                onKeyUp={(event) => {
+                  if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) {
+                    void save({ ui: { ...ui, soundVolume: Number(event.currentTarget.value) / 100 } });
+                  }
                 }}
                 style={{ flex: 1, accentColor: 'var(--accent)' }}
               />
@@ -458,150 +567,119 @@ export function Settings({ bootstrap, themeId, onTheme, onBack, onBootstrap }: S
             {SOUND_PACKS.find((p) => p.id === ui.soundPack)?.hint ?? ''}
             　· 音效全部由程序现场合成（零版权素材），不用下载音频文件。
           </div>
-          <div className="field">
-            <label>落子虚影</label>
-            <select
-              value={ui.hoverMark}
-              onChange={(e) => {
-                const v = e.target.value as 'square' | 'ghost';
-                setUi({ ...ui, hoverMark: v });
-                void save({ ui: { ...ui, hoverMark: v } });
-              }}
-            >
-              <option value="square">小方块（默认，换主题都看得清）</option>
-              <option value="ghost">棋子虚影（拟真，浅色盘上偏淡）</option>
-            </select>
-          </div>
-          <div className="field">
-            <label>分析深度</label>
-            <select
-              value={ui.analysisDepth}
-              onChange={(e) => {
-                const v = e.target.value as 'quick' | 'standard' | 'deep';
-                setUi({ ...ui, analysisDepth: v });
-                void save({ ui: { ...ui, analysisDepth: v } });
-              }}
-            >
-              <option value="quick">快速（约 0.3 秒）</option>
-              <option value="standard">标准（约 0.5~1.5 秒）</option>
-              <option value="deep">深算（数秒）</option>
-            </select>
-          </div>
         </section>
 
-        <section className="panel">
-          <div className="panel-head">
-            <span className="panel-title">名家</span>
-            <span className="panel-sub">印面刻的就是它</span>
-          </div>
-          <div className="field">
-            <label>你的名字</label>
-            <input type="text" value={name} maxLength={12} onChange={(e) => setName(e.target.value)} />
-          </div>
-          <div className="controls" style={{ marginTop: 8 }}>
-            <button
-              className="btn"
-              onClick={async () => {
-                try {
-                  await api.rename(name);
-                  await refresh();
-                  setMsg('已改名');
-                } catch (err) {
-                  setMsg(err instanceof ApiError ? err.message : '改名失败');
-                }
-              }}
-            >
-              保存名字
-            </button>
-            <a className="btn" href="/api/progress/export" download="xingyi-progress.json">
-              导出进度
-            </a>
-          </div>
-          <div className="hint">导出的是 JSON（存档 + 等级表），换机器时留个备份。不自动导入。</div>
-        </section>
-
-        <section className="panel">
-          <div className="panel-head">
-            <span className="panel-title">评级沙盘</span>
-            <span className="panel-sub">只在副本上跑，不动存档</span>
-          </div>
-          <div className="hint">
-            等级表已实测（约 90 分/级）。想看升降手感可以用沙盘：从你当前级起跑 12 盘，三种走势各跑一遍。
-          </div>
-          <div className="controls" style={{ marginTop: 10 }}>
-            {(
-              [
-                ['win', '连赢 12 盘'],
-                ['alternate', '胜负交替'],
-                ['lose', '连败 12 盘'],
-              ] as const
-            ).map(([pattern, label]) => (
+        <div className="settings-section-stack" hidden={section !== 'saves'}>
+          <SaveManager onChange={refresh} />
+          <section className="panel">
+            <div className="panel-head">
+              <span className="panel-title">当前存档名称</span>
+            </div>
+            <div className="field">
+              <label htmlFor="settings-player-name">当前名称</label>
+              <input type="text" id="settings-player-name" value={name} maxLength={12} onChange={(e) => setName(e.target.value)} />
+            </div>
+            <div className="controls" style={{ marginTop: 8 }}>
               <button
-                key={pattern}
                 className="btn"
+                disabled={!bootstrap.progress.activeSaveId}
                 onClick={async () => {
                   try {
-                    setSim(await api.simulateRanked(pattern, 12));
-                  } catch {
-                    setMsg('沙盘跑不动（服务端出错）');
+                    await api.rename(name);
+                    await refresh();
+                    setMsg('已改名');
+                  } catch (err) {
+                    setMsg(err instanceof ApiError ? err.message : '改名失败');
                   }
                 }}
               >
-                {label}
+                保存名字
               </button>
-            ))}
-          </div>
-          {sim && (
-            <div style={{ marginTop: 12, fontSize: 12 }}>
-              <div className="hint">
-                起点 {sim.start.level} 级 · R {sim.start.R} → 终点 {sim.end.levelCn} · R {sim.end.R}（RD {sim.end.RD}）
-              </div>
-              <div style={{ marginTop: 8, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(74px, 1fr))', gap: 6 }}>
-                {sim.timeline.map((g) => (
-                  <div
-                    key={g.game}
-                    title={`第 ${g.game} 盘 · R ${g.R}`}
-                    style={{
-                      border: '1px solid var(--line)',
-                      borderRadius: 'var(--radius-sm)',
-                      padding: '6px 7px',
-                      background: 'var(--surface-alt)',
-                    }}
-                  >
-                    <div style={{ color: g.won ? 'var(--ok)' : 'var(--danger)' }}>{g.won ? '胜' : '负'}</div>
-                    <div className="hint" style={{ fontSize: 11 }}>
-                      {g.deltaR > 0 ? '+' : ''}
-                      {g.deltaR} · {g.level} 级
-                      {g.change === 'up' ? ' ↑' : g.change === 'down' ? ' ↓' : ''}
-                    </div>
-                  </div>
-                ))}
-              </div>
             </div>
-          )}
-        </section>
+          </section>
+        </div>
 
-        <section className="panel">
-          <div className="panel-head">
-            <span className="panel-title">关于</span>
-            <span className="panel-sub">v{bootstrap.version}</span>
-          </div>
-          <div className="hint" style={{ lineHeight: 2 }}>
-            星弈 · 开源围棋修炼软件（MIT）。规则只做中国规则：数子、贴 7.5 目。
-            <br />
-            等级 1~15 为业余向成长线，满级不是本机最强（KataGo 全力远超人类）。
-            <br />
-            {bootstrap.ranks.calibrated
-              ? `等级校准分已实测${bootstrap.ranks.step ? `（中位步长 ${bootstrap.ranks.step} 分/级）` : ''}。`
-              : '⚠️ 等级校准分尚未实测（ranks.json 为占位值），升降级幅度待校准。'}
-            {bootstrap.ranks.note ? (
-              <>
-                <br />
-                <span style={{ opacity: 0.75 }}>{bootstrap.ranks.note}</span>
-              </>
-            ) : null}
-          </div>
-        </section>
+        <div className="settings-section-stack" hidden={section !== 'about'}>
+          <section className="panel">
+            <div className="panel-head">
+              <span className="panel-title">关于</span>
+              <span className="panel-sub">v{bootstrap.version}</span>
+            </div>
+            <div className="hint" style={{ lineHeight: 2 }}>
+              星弈 · 开源围棋修炼软件（MIT）。规则只做中国规则：数子、贴 7.5 目。
+              <br />
+              二十五级为新手起点，一级最强。一级以职业初段为校准目标，仍需真人对局验证。
+              <br />
+              {bootstrap.ranks.calibrated
+                ? `等级校准分已实测${bootstrap.ranks.step ? `（中位步长 ${bootstrap.ranks.step} 分/级）` : ''}。`
+                : '⚠️ 等级校准分尚未实测（ranks.json 为占位值），升降级幅度待校准。'}
+              {bootstrap.ranks.note ? (
+                <>
+                  <br />
+                  <span style={{ opacity: 0.75 }}>{bootstrap.ranks.note}</span>
+                </>
+              ) : null}
+            </div>
+          </section>
+
+          <details className="panel screen-details">
+            <summary>评级沙盘</summary>
+            <div className="hint">
+              从当前等级模拟 12 盘胜负，查看升降级变化。
+            </div>
+            <div className="controls" style={{ marginTop: 10 }}>
+              {(
+                [
+                  ['win', '连赢 12 盘'],
+                  ['alternate', '胜负交替'],
+                  ['lose', '连败 12 盘'],
+                ] as const
+              ).map(([pattern, label]) => (
+                <button
+                  key={pattern}
+                  className="btn"
+                  onClick={async () => {
+                    try {
+                      setSim(await api.simulateRanked(pattern, 12));
+                    } catch {
+                      setMsg('沙盘跑不动（服务端出错）');
+                    }
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {sim && (
+              <div style={{ marginTop: 12, fontSize: 12 }}>
+                <div className="hint">
+                  起点 {sim.start.level} 级 · R {sim.start.R} → 终点 {sim.end.levelCn} · R {sim.end.R}（RD {sim.end.RD}）
+                </div>
+                <div style={{ marginTop: 8, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(74px, 1fr))', gap: 6 }}>
+                  {sim.timeline.map((g) => (
+                    <div
+                      key={g.game}
+                      title={`第 ${g.game} 盘 · R ${g.R}`}
+                      style={{
+                        border: '1px solid var(--line)',
+                        borderRadius: 'var(--radius-sm)',
+                        padding: '6px 7px',
+                        background: 'var(--surface-alt)',
+                      }}
+                    >
+                      <div style={{ color: g.won ? 'var(--ok)' : 'var(--danger)' }}>{g.won ? '胜' : '负'}</div>
+                      <div className="hint" style={{ fontSize: 11 }}>
+                        {g.deltaR > 0 ? '+' : ''}
+                        {g.deltaR} · {g.level} 级
+                        {g.change === 'up' ? ' ↑' : g.change === 'down' ? ' ↓' : ''}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </details>
+        </div>
       </div>
     </div>
   );

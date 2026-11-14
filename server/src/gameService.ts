@@ -3,7 +3,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {
+  BEGINNER_LEVEL,
   BOARD_SIZES,
+  STRONGEST_LEVEL,
   CAPS,
   DEFAULT_KOMI,
   PASS,
@@ -18,32 +20,36 @@ import {
   type ReviewResult,
   type RoomSeat,
   type TimeControl,
+  type TeachingReviewStatus,
+  type FirstGameExercise,
   type Vertex,
 } from '@xingyi/shared';
-import { Game } from '@xingyi/rules';
+import { checkExerciseMove, exercisePosition, findFirstGameExercise, Game } from '@xingyi/rules';
 import { Room, RoomError, makeRoomCode, type RoomSettings } from './room.js';
 import { DEFAULT_TIME_CONTROL } from './clock.js';
 import { handicapKomi, handicapStones } from './handicap.js';
-import { detectHardware, offlineMove, type CheckResult, type EngineManager } from '@xingyi/engine';
+import { detectHardware, needsHumanProfile, offlineMove, type CheckResult, type EngineManager } from '@xingyi/engine';
 import {
   applyJumpExam,
   applyRankedGame,
   createProgress,
   defaultRankTable,
-  loadProgressFile,
   normalizeProgress,
   normalizeRankTable,
   ratingOf,
   recordPlacementResult,
-  saveProgressFile,
   type Progress,
   type RankTable,
   type RankedOutcome,
 } from '@xingyi/rating';
-import { loadConfig, saveConfig, type AppConfig } from './config.js';
+import { loadConfig, saveConfig, updateConfigValues, type AppConfig } from './config.js';
 import { Match } from './match.js';
 import { parseSgf, toSgf } from './sgf.js';
 import type { DataPaths } from './paths.js';
+import { SaveSlots } from './saveSlots.js';
+import { MistakeNotebook } from './mistakeNotebook.js';
+import { EngineInstaller } from './engineInstaller.js';
+import { analyzeTeachingAttempt, buildTeachingExercise } from './teachingReview.js';
 
 export class ServiceError extends Error {
   constructor(
@@ -62,10 +68,12 @@ export interface CreateMatchOptions {
   playerColor?: Color;
   /** 跳档考核：目标级 */
   examLevel?: number | null;
+  saveId?: string | null;
   /** 让子数（2~9；0/1 = 不让） */
   handicap?: number;
   /** 时间制；不传 = 默认 10 分 + 3×30 秒，显式 null = 不限时 */
   timeControl?: TimeControl | null;
+  fromLesson?: boolean;
 }
 
 export interface Settlement {
@@ -199,7 +207,13 @@ function buildReviewResult(job: ReviewJob): ReviewResult {
  */
 export class GameService extends EventEmitter {
   private readonly paths: DataPaths;
+  private readonly saves: SaveSlots;
+  private readonly mistakes: MistakeNotebook;
+  private readonly engineInstaller: EngineInstaller;
   private readonly matches = new Map<string, Match>();
+  private readonly teachingReviews = new WeakMap<Match, TeachingReviewStatus>();
+  private teachingReviewRunning = false;
+  private teachingAttemptRunning = false;
   private readonly rooms = new Map<string, Room>();
   private clockTimer: ReturnType<typeof setInterval> | null = null;
   cfg: AppConfig;
@@ -212,13 +226,17 @@ export class GameService extends EventEmitter {
     super();
     this.paths = paths;
     this.cfg = loadConfig(paths.configFile);
-    this.progress =
-      loadProgressFile(paths.progressFile, this.cfg.game.maxLevel) ??
-      createProgress(this.cfg.playerName, this.cfg.game.maxLevel);
     this.ranks = this.loadRanks();
+    this.saves = new SaveSlots(paths, this.ranks);
+    this.mistakes = new MistakeNotebook(path.join(paths.data, 'mistakes', 'notebook.json'));
+    this.engineInstaller = new EngineInstaller(path.resolve(paths.data, 'engine', 'managed'));
+    this.progress = (this.saves.activeId ? this.saves.load(this.saves.activeId) : null) ??
+      createProgress(this.cfg.playerName, this.ranks.maxLevel);
     this.engine = engine;
-    this.engine.on('status', (status: EngineStatus) => this.emit('engine', status));
+    this.engine.on('status', this.forwardEngineStatus);
   }
+
+  private readonly forwardEngineStatus = (status: EngineStatus): void => { this.emit('engine', status); };
 
   private loadRanks(): RankTable {
     try {
@@ -264,8 +282,9 @@ export class GameService extends EventEmitter {
       }
       // 手谈房间的棋钟（W2）：每秒推一次快照，两边的钟才会走；超时判负在 snapshot 里做
       for (const r of this.rooms.values()) {
-        if (!r.clock || r.status !== 'playing') continue;
-        this.emit('room', r.snapshot());
+        if (r.status !== 'playing') continue;
+        const room = r.snapshot();
+        if (r.clock || room.status === 'finished') this.emit('room', room);
       }
     }, 1000);
     // 别让计时循环把进程钉死（服务正常退出时允许结束）
@@ -285,10 +304,16 @@ export class GameService extends EventEmitter {
 
   updateConfig(patch: unknown): AppConfig {
     const before = JSON.stringify(this.cfg.engine);
-    this.cfg = { ...this.cfg, ...(patch as object) } as AppConfig;
-    saveConfig(this.paths.configFile, this.cfg);
+    const next = updateConfigValues(this.cfg, patch);
+    const engineChanged = JSON.stringify(next.engine) !== before;
+    if (engineChanged && this.engineInstaller.running) throw new ServiceError(409, '请等 KataGo 安装完成再修改引擎配置');
+    if (engineChanged && this.activeRankedMatch()) {
+      throw new ServiceError(409, '请先结束当前修习对局，再更改引擎配置');
+    }
+    saveConfig(this.paths.configFile, next);
+    this.cfg = next;
     this.engine.updateConfig(this.cfg.engine);
-    if (JSON.stringify(this.cfg.engine) !== before) {
+    if (engineChanged) {
       void this.engine.restart().catch(() => undefined);
     }
     return this.cfg;
@@ -304,21 +329,61 @@ export class GameService extends EventEmitter {
   }
 
   async restartEngine(): Promise<EngineStatus> {
+    if (this.engineInstaller.running) throw new ServiceError(409, 'KataGo 正在安装');
+    if (this.activeRankedMatch()) throw new ServiceError(409, '请先结束当前修习对局，再重启引擎');
     return this.engine.restart();
+  }
+
+  engineInstallStatus() {
+    return { ...this.engineInstaller.status, supported: EngineInstaller.supported };
+  }
+
+  startEngineInstall() {
+    if (!EngineInstaller.supported) throw new ServiceError(400, '一键安装目前支持 Windows x64；这台电脑可使用手动设置');
+    if (this.activeRankedMatch()) throw new ServiceError(409, '请先结束当前修习对局，再安装 KataGo');
+    if (this.engine.ready && this.cfg.engine.humanModelPath) {
+      return { ...this.engineInstallStatus(), phase: 'ready' as const, message: 'KataGo 和人类棋风模型已配置。' };
+    }
+    this.engineInstaller.start(this.cfg.engine, (config, candidate) => {
+      if (this.activeRankedMatch()) throw new Error('请先结束当前修习对局，再安装 KataGo。');
+      const next = { ...this.cfg, engine: config };
+      saveConfig(this.paths.configFile, next);
+      const previous = this.engine;
+      previous.off('status', this.forwardEngineStatus);
+      this.engine = candidate;
+      this.cfg = next;
+      candidate.on('status', this.forwardEngineStatus);
+      this.forwardEngineStatus(candidate.status);
+      void previous.stop();
+    });
+    return this.engineInstallStatus();
   }
 
   // ------------------------------------------------------------ 对局
 
+  private activeRankedMatch(): Match | undefined {
+    return [...this.matches.values()].find((m) => m.mode === 'ranked' && !m.finished);
+  }
+
   createMatch(opts: CreateMatchOptions): Match {
     const mode = opts.mode;
-    if (mode === 'lan') throw new ServiceError(501, '手谈（联机）还没做，P5 才上线');
+    if (mode !== 'ranked' && mode !== 'free') throw new ServiceError(400, '请选择自在或修习，手谈请从房间入口进入');
+    const ranked = mode === 'ranked';
+    if (ranked) {
+      if (opts.saveId !== undefined && opts.saveId !== this.saves.activeId) {
+        throw new ServiceError(409, '当前存档已切换，请刷新修习准备页');
+      }
+      if (!this.saves.activeId) throw new ServiceError(409, '请先在设置中建立一个修习存档');
+      const active = this.activeRankedMatch();
+      if (active) return active;
+    }
     const caps = CAPS[mode];
-    const requestedSize = opts.size ?? 19;
+    const requestedSize = ranked ? 19 : (opts.size ?? 19);
     const size: BoardSize = BOARD_SIZES.includes(requestedSize) ? requestedSize : 19;
-    const handicap = Math.max(0, Math.min(9, Math.round(Number(opts.handicap ?? 0))));
-    const baseKomi = Number.isFinite(opts.komi) ? Number(opts.komi) : DEFAULT_KOMI;
+    const handicap = ranked ? 0 : Math.max(0, Math.min(9, Math.round(Number(opts.handicap ?? 0))));
+    const baseKomi = !ranked && Number.isFinite(opts.komi) ? Number(opts.komi) : DEFAULT_KOMI;
     const komi = handicapKomi(handicap, baseKomi);
-    const playerColor: Color = opts.playerColor === 'W' ? 'W' : 'B';
+    const playerColor: Color = (ranked ? this.progress.gamesTotal % 2 === 1 : opts.playerColor === 'W') ? 'W' : 'B';
 
     let level: number;
     let opponent: 'katago' | 'offline' = 'katago';
@@ -326,28 +391,35 @@ export class GameService extends EventEmitter {
     let examLevel: number | null = null;
 
     if (mode === 'ranked') {
-      if (!this.engine.ready) {
+      if (!this.engine.ready || !this.engine.status.humanModelPath) {
         throw new ServiceError(
           409,
-          '修习模式需要 KataGo 引擎：请先在「设置 → 引擎」里指定 katago 程序与模型，完成自检后再来。',
+          '修习模式需要 KataGo 引擎：请先在「设置 → 引擎」里指定 KataGo 程序、主模型与人类模型，完成自检后再来。',
         );
       }
       const p = this.progress;
       isPlacement = !p.placement.done;
       level = isPlacement ? p.placement.current : p.level;
-      if (!isPlacement && opts.examLevel) {
-        examLevel = Math.min(this.ranks.maxLevel, Math.max(p.level + 1, Number(opts.examLevel)));
+      if (opts.examLevel != null) {
+        if (isPlacement || !p.pendingPromotion || !Number.isInteger(opts.examLevel) ||
+            opts.examLevel < STRONGEST_LEVEL || opts.examLevel >= p.level || p.level - opts.examLevel > 2) {
+          throw new ServiceError(400, '当前不能进行这一级的跳档考核');
+        }
+        examLevel = opts.examLevel;
         level = examLevel;
       }
     } else {
-      level = caps.allowLevelSelect ? Number(opts.level ?? 8) : 8;
-      level = Math.min(this.ranks.maxLevel, Math.max(1, Math.round(level)));
-      opponent = this.engine.ready ? 'katago' : 'offline';
+      level = caps.allowLevelSelect ? Number(opts.level ?? BEGINNER_LEVEL) : BEGINNER_LEVEL;
+      level = Number.isFinite(level) ? Math.min(this.ranks.maxLevel, Math.max(1, Math.round(level))) : BEGINNER_LEVEL;
+      opponent = this.engine.ready && (!needsHumanProfile(level) || this.engine.status.humanModelPath) ? 'katago' : 'offline';
+      if (opts.fromLesson && (opponent !== 'katago' || !this.engine.status.humanModelPath)) {
+        throw new ServiceError(409, '请先在「设置 → 引擎」完成 KataGo 和人类棋风模型的安装');
+      }
     }
 
     // 时间制：显式传 null 才是不限时，不传按默认 10 分 + 3×30 秒
     const timeControl: TimeControl | null =
-      opts.timeControl === null ? null : (opts.timeControl ?? DEFAULT_TIME_CONTROL);
+      ranked || opts.timeControl === null ? null : (opts.timeControl ?? DEFAULT_TIME_CONTROL);
 
     const match = new Match({
       id: randomUUID().slice(0, 8),
@@ -363,6 +435,7 @@ export class GameService extends EventEmitter {
       // 让子局：黑先摆子，白先走（Game 会根据 setup 自动把 toPlay 定成白）
       setup: handicap >= 2 ? { black: handicapStones(size, handicap), white: [] } : undefined,
       timeControl,
+      fromLesson: !ranked && opts.fromLesson === true,
     });
     this.matches.set(match.id, match);
     this.trimMatches();
@@ -383,6 +456,121 @@ export class GameService extends EventEmitter {
     const m = this.matches.get(id);
     if (!m) throw new ServiceError(404, '对局不存在（可能服务重启过）');
     return m;
+  }
+
+  listMistakes() {
+    return this.mistakes.list();
+  }
+
+  teachingReviewStatus(id: string): TeachingReviewStatus {
+    const cached = this.teachingReviews.get(this.getMatch(id));
+    return cached ?? { phase: 'unavailable', reason: '请重新开始教学复盘。' };
+  }
+
+  startTeachingReview(id: string): TeachingReviewStatus {
+    const match = this.getMatch(id);
+    if (!match.finished || match.opponent !== 'katago' || match.game.handicap ||
+        match.game.setup.black.length || match.game.setup.white.length) {
+      return { phase: 'unavailable', reason: '请先完成一盘和 KataGo 的分先对局。' };
+    }
+    const cached = this.teachingReviews.get(match);
+    if (cached && cached.phase !== 'unavailable') return cached;
+    if (!this.engine.ready) return { phase: 'unavailable', reason: 'KataGo 未就绪。启动引擎后可重试。' };
+    if (this.teachingReviewRunning || this.teachingAttemptRunning) return { phase: 'unavailable', reason: 'KataGo 正在分析，请稍后再试。' };
+    this.teachingReviewRunning = true;
+    const engine = this.engine;
+    const running: TeachingReviewStatus = { phase: 'running', done: 0, total: 0 };
+    this.teachingReviews.set(match, running);
+    void buildTeachingExercise(match.snapshot(), (request) => {
+      if (!engine.ready || engine !== this.engine) throw new Error('engine changed');
+      return engine.analyze(request);
+    }, (done, total) => {
+      this.teachingReviews.set(match, { phase: 'running', done, total });
+    }).then((exercise) => {
+      this.teachingReviews.set(match, exercise
+        ? { phase: 'ready', exercise, saved: this.mistakes.list().some((entry) => entry.gameId === id && entry.exercise.kind === 'katago') }
+        : { phase: 'unavailable', reason: '这盘暂未找到目差足够明显、能用短变化演示的一手。可以打开完整复盘查看。' });
+    }).catch(() => {
+      this.teachingReviews.set(match, { phase: 'unavailable', reason: 'KataGo 分析中断，请确认引擎就绪后重试。' });
+    }).finally(() => { this.teachingReviewRunning = false; });
+    return this.teachingReviews.get(match) ?? running;
+  }
+
+  saveMistake(gameId: string, useTeachingReview = false) {
+    if (useTeachingReview) {
+      const status = this.teachingReviewStatus(gameId);
+      if (status.phase !== 'ready') throw new ServiceError(409, '请先完成 KataGo 教学复盘');
+      const entry = this.mistakes.save(gameId, () => status.exercise, true);
+      status.saved = true;
+      return entry;
+    }
+    return this.mistakes.save(gameId, () => {
+      const match = this.getMatch(gameId);
+      const game = match.game;
+      if (match.mode !== 'free' || !match.finished || match.opponent === 'human' ||
+          game.size !== 9 || game.handicap || game.setup.black.length || game.setup.white.length) {
+        throw new ServiceError(400, '这盘棋不能生成错题，请从围棋入门开始一盘 9 路练习棋');
+      }
+      const exercise = findFirstGameExercise(match.snapshot());
+      if (!exercise) throw new ServiceError(400, '这盘棋没有可保存的局面');
+      return exercise;
+    });
+  }
+
+  practiceMistake(gameId: string, vertex: number) {
+    const entry = this.mistakes.practice(gameId, (exercise) => {
+      const result = checkExerciseMove(exercise, vertex);
+      if (!result.correct) throw new ServiceError(400, result.message);
+    });
+    if (!entry) throw new ServiceError(404, '这道错题已移除，请返回错题列表');
+    return entry;
+  }
+
+  async tryTeachingMove(gameId: string, vertex: number, fromNotebook: boolean) {
+    const saved = fromNotebook ? this.mistakes.list().find((entry) => entry.gameId === gameId) : undefined;
+    if (fromNotebook && !saved) throw new ServiceError(404, '这道错题已移除，请返回错题列表');
+    const status = fromNotebook ? null : this.teachingReviewStatus(gameId);
+    const exercise = saved?.exercise ?? (status?.phase === 'ready' ? status.exercise : null);
+    const comparison = exercise?.comparison;
+    if (!exercise || !comparison) throw new ServiceError(409, '请打开一道人机对照练习');
+    const attempt = vertex === exercise.answer
+      ? { lead: comparison.suggested, closeToSuggested: true, variation: comparison.variation }
+      : await this.evaluateTeachingMove(exercise, vertex);
+    const updated = saved && attempt.closeToSuggested ? this.mistakes.practice(gameId, (current) => {
+      if (JSON.stringify(current) !== JSON.stringify(exercise)) throw new ServiceError(409, '错题已更新，请重新打开');
+    }) : null;
+    if (saved && attempt.closeToSuggested && !updated) throw new ServiceError(404, '这道错题已移除，请返回错题列表');
+    return { attempt, updated };
+  }
+
+  private async evaluateTeachingMove(exercise: FirstGameExercise, vertex: number) {
+    const game = exercisePosition(exercise);
+    if (vertex === PASS) throw new ServiceError(400, '请在棋盘上选一个落点');
+    const legal = game.preview(game.toPlay, vertex);
+    if (!legal.ok) throw new ServiceError(400, legal.message ?? '这一手不能下');
+    if (this.teachingAttemptRunning || this.teachingReviewRunning) {
+      throw new ServiceError(409, 'KataGo 正在分析，请稍后重试');
+    }
+    const engine = this.engine;
+    if (!engine.ready) throw new ServiceError(409, 'KataGo 未就绪，请启动引擎后重试');
+    this.teachingAttemptRunning = true;
+    try {
+      const attempt = await analyzeTeachingAttempt(exercise, vertex, (request) => engine.analyze(request));
+      if (!attempt || engine !== this.engine) throw new ServiceError(503, '这一步暂未算出可靠结果，可以重试');
+      return attempt;
+    } catch (err) {
+      if (err instanceof ServiceError) throw err;
+      throw new ServiceError(503, 'KataGo 分析中断，请确认引擎就绪后重试');
+    } finally {
+      this.teachingAttemptRunning = false;
+    }
+  }
+
+  removeMistake(gameId: string) {
+    this.mistakes.remove(gameId);
+    const match = this.matches.get(gameId);
+    const review = match && this.teachingReviews.get(match);
+    if (review?.phase === 'ready') review.saved = false;
   }
 
   listMatches(): { id: string; mode: Mode; size: number; level: number; status: string; updatedAt: string }[] {
@@ -508,10 +696,11 @@ export class GameService extends EventEmitter {
           size: m.size,
           komi: m.game.komi,
           moves: m.moveList(),
-        });
+        }, 60000, m.mode === 'ranked' || m.fromLesson);
         vertex = out.vertex;
         resign = out.resign;
       } else {
+        if (m.mode === 'ranked' || m.fromLesson) throw new Error('KataGo 引擎未就绪');
         vertex = offlineMove({
           size: m.size,
           grid: m.game.board.grid,
@@ -533,6 +722,11 @@ export class GameService extends EventEmitter {
         }
       }
     } catch (err) {
+      if ((m.mode === 'ranked' || m.fromLesson) && m.game.status === 'playing') {
+        m.game.status = 'finished';
+        m.result = { winner: null, reason: 'quit', text: '引擎中断，本局作废' };
+        m.settlement = { counted: false, reason: m.fromLesson ? '请在设置中重启 KataGo，再开一盘练习棋' : '引擎无法按修习难度出招，本局未计分' };
+      }
       this.emit('error', { matchId: m.id, message: (err as Error).message });
     } finally {
       m.aiThinking = false;
@@ -545,13 +739,23 @@ export class GameService extends EventEmitter {
 
   scorePreview(id: string, dead: Vertex[]) {
     const m = this.getMatch(id);
+    if (m.mode === 'ranked') throw new ServiceError(403, '修习由引擎裁定死子');
     return m.game.score(dead);
   }
 
-  finishScored(id: string, dead: Vertex[]) {
+  async finishScored(id: string, dead: Vertex[]) {
     const m = this.getMatch(id);
     if (m.finished) throw new ServiceError(400, '这盘已经结算过了');
     if (m.game.status === 'playing') throw new ServiceError(400, '双方还没停手，不能数子');
+    if (m.mode === 'ranked') {
+      if (dead.length) throw new ServiceError(400, '修习由引擎裁定死子');
+      try {
+        dead = await this.engine.finalDead({ size: m.size, komi: m.game.komi, moves: m.moveList() });
+      } catch {
+        throw new ServiceError(503, '暂时无法自动数子，请确认引擎就绪后重试');
+      }
+      if (m.finished) throw new ServiceError(409, '这盘已经结算过了');
+    }
     const { detail, text } = m.game.finishByScore(dead);
     m.applyScore(detail, text);
     m.touch();
@@ -610,6 +814,7 @@ export class GameService extends EventEmitter {
         scoreDiff: signedDiff,
         moves,
         ranks: this.ranks,
+        opponentLevel: m.level,
         text: result.text,
       });
     }
@@ -630,7 +835,7 @@ export class GameService extends EventEmitter {
   }
 
   private saveProgress(): void {
-    saveProgressFile(this.paths.progressFile, this.paths.backups, this.progress);
+    if (this.saves.activeId) this.saves.save(this.saves.activeId, this.progress);
     this.emit('progress', this.progressSummary());
   }
 
@@ -686,7 +891,7 @@ export class GameService extends EventEmitter {
           ? { black: [...m.game.setup.black], white: [...m.game.setup.white] }
           : undefined,
       // 分析一律用主模型；访问量由分析档位单独给（不用等级表里的 visits）
-      level: 15,
+      level: STRONGEST_LEVEL,
       assumeLevel: assumeLevel ?? null,
       ...preset,
     });
@@ -711,6 +916,9 @@ export class GameService extends EventEmitter {
     { available: true; result: ReviewResult } | { available: false; reason: string }
   > {
     const m = this.getMatch(id);
+    if (!CAPS[m.mode].allowAnalysis && !m.finished) {
+      return { available: false, reason: '修习结束后才能复盘' };
+    }
     if (!this.engine.ready) {
       return { available: false, reason: '引擎未就绪：在「设置 → 引擎」完成配置后才能复盘' };
     }
@@ -749,7 +957,7 @@ export class GameService extends EventEmitter {
           komi: job.komi,
           moves: moves.slice(0, k),
           turn,
-          level: 15,
+          level: STRONGEST_LEVEL,
           visits: 120,
           minDurationMs: 80,
           maxDurationMs: 300,
@@ -791,7 +999,7 @@ export class GameService extends EventEmitter {
       size,
       komi: Number.isFinite(parsed.komi) ? parsed.komi : DEFAULT_KOMI,
       handicap,
-      level: 8,
+      level: BEGINNER_LEVEL,
       playerColor: 'B',
       opponent: 'human',
       setup: parsed.setup,
@@ -820,12 +1028,15 @@ export class GameService extends EventEmitter {
 
   progressSummary() {
     const p = this.progress;
+    const match = this.activeRankedMatch();
     return {
       ...p,
+      activeSaveId: this.saves.activeId,
+      rankedMatch: match ? { level: match.level, playerColor: match.playerColor } : null,
       history: p.history.slice(-30),
       levelCn: levelCn(p.level),
       maxLevel: this.ranks.maxLevel,
-      nextLevelRating: p.level < this.ranks.maxLevel ? ratingOf(this.ranks, p.level + 1) : null,
+      nextLevelRating: p.level > STRONGEST_LEVEL ? ratingOf(this.ranks, p.level - 1) : null,
       ranksCalibrated: this.ranks.calibrated,
     };
   }
@@ -842,6 +1053,10 @@ export class GameService extends EventEmitter {
     /** 让子 2~9；1 与非数字都按 0 处理，让 2 子以上贴目自动变 0.5 */
     handicap?: number;
   }): RoomSeat {
+    for (const [code, room] of this.rooms) {
+      if (room.status !== 'playing' && Date.now() - room.lastMoveAt > 2 * 60 * 60 * 1000) this.rooms.delete(code);
+    }
+    if (this.rooms.size >= 32) throw new ServiceError(429, '房间已满，请先关闭不用的房间');
     const size: BoardSize = BOARD_SIZES.includes(opts.size ?? 19) ? (opts.size as BoardSize) : 19;
     const komi = Number.isFinite(opts.komi) ? Number(opts.komi) : DEFAULT_KOMI;
     const name = (opts.name ?? '').trim().slice(0, 12) || '房主';
@@ -871,7 +1086,13 @@ export class GameService extends EventEmitter {
   joinRoom(code: string, opts: { name?: string; clientId: string }): RoomSeat {
     const room = this.roomOf(code);
     const name = (opts.name ?? '').trim().slice(0, 12) || '棋友';
-    const color = room.seat(opts.clientId, name);
+    let color: RoomSeat['color'];
+    try {
+      color = room.seat(opts.clientId, name);
+    } catch (err) {
+      if (err instanceof RoomError) throw new ServiceError(err.status, err.message);
+      throw err;
+    }
     this.emit('room', room.snapshot());
     return { room: room.snapshot(), color };
   }
@@ -930,6 +1151,7 @@ export class GameService extends EventEmitter {
 
   roomChat(code: string, clientId: string, text: string): Room {
     const room = this.roomOf(code);
+    if (!room.colorOf(clientId)) throw new ServiceError(403, '请先加入房间');
     room.say(clientId, text);
     this.emit('room', room.snapshot());
     return room;
@@ -942,22 +1164,91 @@ export class GameService extends EventEmitter {
   }
 
   /** 导出进度：存档 + 等级表，换机器时导入用（当前只导出，不自动导入） */
-  exportProgress(): { app: string; schemaVersion: number; exportedAt: string; progress: unknown; ranks: unknown } {
+  exportProgress(id = this.saves.activeId) {
+    const progress = this.getSave(id);
     return {
       app: 'xingyi',
-      schemaVersion: this.progress.schemaVersion,
+      schemaVersion: progress.schemaVersion,
       exportedAt: new Date().toISOString(),
-      progress: this.progress,
-      ranks: { step: this.ranks.step, stepCi95: this.ranks.stepCi95, levels: this.ranks.levels },
+      progress,
+      ranks: this.ranks,
     };
   }
 
+  private getSave(id: string | null): Progress {
+    if (!id || !this.saves.ids.includes(id)) throw new ServiceError(404, '找不到这个存档');
+    const progress = id === this.saves.activeId ? this.progress : this.saves.load(id);
+    if (!progress) throw new ServiceError(409, '此存档无法读取');
+    return progress;
+  }
+
+  listSaves() {
+    const saves = this.saves.ids.map((id) => {
+      const p = id === this.saves.activeId ? this.progress : this.saves.load(id);
+      return {
+        id, name: p?.playerName ?? '无法读取的存档', gamesTotal: p?.gamesTotal ?? 0,
+        level: p?.placement.done ? p.level : null, updatedAt: p?.updatedAt ?? null, readable: p !== null,
+      };
+    });
+    return { saves, activeId: this.saves.activeId, locked: Boolean(this.activeRankedMatch()) };
+  }
+
+  private assertSavesUnlocked(): void {
+    if (this.activeRankedMatch()) throw new ServiceError(409, '请先结束或结算当前修习对局');
+  }
+
+  createSave(name: unknown) {
+    this.assertSavesUnlocked();
+    const clean = typeof name === 'string' ? name.trim().slice(0, 12) : '';
+    if (!clean) throw new ServiceError(400, '请输入存档名称');
+    // Materialize the old implicit save before switching away from it.
+    if (this.saves.activeId && !this.saves.load(this.saves.activeId)) {
+      this.saves.save(this.saves.activeId, this.progress);
+    }
+    const progress = createProgress(clean, this.ranks.maxLevel);
+    this.saves.create(progress);
+    this.progress = progress;
+    this.emit('progress', this.progressSummary());
+    return this.listSaves();
+  }
+
+  selectSave(id: string) {
+    this.assertSavesUnlocked();
+    const progress = this.getSave(id);
+    this.saves.select(id);
+    this.progress = progress;
+    this.emit('progress', this.progressSummary());
+    return this.listSaves();
+  }
+
+  deleteSave(id: string) {
+    this.assertSavesUnlocked();
+    if (!this.saves.ids.includes(id)) throw new ServiceError(404, '找不到这个存档');
+    const deletingActive = id === this.saves.activeId;
+    let nextId = this.saves.activeId;
+    let next: Progress | null = null;
+    if (deletingActive) {
+      nextId = null;
+      for (const candidate of this.saves.ids) {
+        if (candidate === id) continue;
+        next = this.saves.load(candidate);
+        if (next) {
+          nextId = candidate;
+          break;
+        }
+      }
+    }
+    this.saves.remove(id, nextId);
+    if (deletingActive) this.progress = next ?? createProgress(this.cfg.playerName, this.ranks.maxLevel);
+    this.emit('progress', this.progressSummary());
+    return this.listSaves();
+  }
+
   renamePlayer(name: string): void {
+    if (!this.saves.activeId) throw new ServiceError(404, '请先建立一个存档');
     const clean = String(name ?? '').trim().slice(0, 12);
     if (!clean) throw new ServiceError(400, '名字不能为空');
     this.progress.playerName = clean;
-    this.cfg.playerName = clean;
-    saveConfig(this.paths.configFile, this.cfg);
     this.saveProgress();
   }
 
@@ -1018,13 +1309,15 @@ export class GameService extends EventEmitter {
 
   /** 仅供开发/演示：重置进度（需要显式 confirmation 字符串） */
   resetProgress(confirm: string): void {
+    this.assertSavesUnlocked();
     if (confirm !== 'RESET') throw new ServiceError(400, '需要确认参数 confirm=RESET');
-    this.progress = createProgress(this.cfg.playerName, this.cfg.game.maxLevel);
+    if (!this.saves.activeId) throw new ServiceError(404, '找不到当前存档');
+    this.progress = createProgress(this.progress.playerName, this.cfg.game.maxLevel);
     this.saveProgress();
   }
 
   normalizeOnBoot(): void {
-    this.progress = normalizeProgress(this.progress, this.cfg.game.maxLevel);
+    this.progress = normalizeProgress(this.progress, this.ranks.maxLevel, this.ranks);
   }
 
   /** 供测试与"空局面"用：从任意盘面建一局（摆子分析） */
@@ -1039,7 +1332,7 @@ export class GameService extends EventEmitter {
       mode: 'free',
       size,
       komi,
-      level: 8,
+      level: BEGINNER_LEVEL,
       playerColor: toPlay,
       opponent: 'human',
       setup,

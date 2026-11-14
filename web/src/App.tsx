@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { api, type Bootstrap, type SocketEvent } from './api';
+import { api, ApiError, type Bootstrap, type GameResponse, type SocketEvent } from './api';
 import { GameView } from './modes/GameView';
+import { RankedLobby } from './modes/RankedLobby';
 import { Menu } from './modes/Menu';
 import { LanView } from './modes/LanView';
 import { LearnView } from './modes/LearnView';
@@ -8,8 +9,9 @@ import { Settings } from './Settings';
 import { configureSound } from './sound';
 import { DEFAULT_SKIN_ID, SKINS, cssVars, skinById } from './theme/skins';
 import type { EngineStatus, Mode, ProgressView } from './types';
+import './styles/progress.css';
 
-type View = 'menu' | 'free' | 'ranked' | 'lan' | 'learn' | 'settings';
+type View = 'menu' | 'free' | 'ranked' | 'ranked-game' | 'lan' | 'learn' | 'settings';
 
 const THEME_KEY = 'xingyi.theme';
 const VIEWS: View[] = ['menu', 'free', 'ranked', 'lan', 'learn', 'settings'];
@@ -36,9 +38,14 @@ function initialTheme(): string {
 export function App() {
   const [boot, setBoot] = useState<Bootstrap | null>(null);
   const [view, setView] = useState<View>(initialView);
+  const [rankedGame, setRankedGame] = useState<GameResponse | null>(null);
+  const [fromLesson, setFromLesson] = useState(false);
+  const [settingsTarget, setSettingsTarget] = useState<'saves' | null>(null);
+  const [lessonSettings, setLessonSettings] = useState(false);
   const [themeId, setThemeId] = useState<string>(initialTheme);
   const [lastEvent, setLastEvent] = useState<SocketEvent | null>(null);
   const [fatal, setFatal] = useState<string | null>(null);
+  const [lanOnly, setLanOnly] = useState(false);
   const [toast, setToast] = useState<{ text: string; undo?: () => void } | null>(null);
   const toastTimer = useRef<number | undefined>(undefined);
 
@@ -62,7 +69,12 @@ export function App() {
       if (!fromQuery && !localStorage.getItem(THEME_KEY) && SKINS.some((s) => s.id === b.config.ui.themeId)) {
         setThemeId(b.config.ui.themeId);
       }
-    } catch {
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 403 && await api.lanAvailable().catch(() => false)) {
+        setLanOnly(true);
+        setFatal(null);
+        return;
+      }
       setFatal('连不上本地服务。请确认 `npm run dev` 的 server 那一半在跑（默认 7388 端口）。');
     }
   }, []);
@@ -84,8 +96,9 @@ export function App() {
     [],
   );
 
-  // WebSocket 单独起（App 层只订阅，不阻塞渲染）
+  const localConnected = boot !== null;
   useEffect(() => {
+    if (!localConnected) return;
     let ws: WebSocket | null = null;
     let closed = false;
     let timer: number | undefined;
@@ -110,7 +123,7 @@ export function App() {
       if (timer) window.clearTimeout(timer);
       ws?.close();
     };
-  }, [onSocket]);
+  }, [localConnected, onSocket]);
 
   const changeTheme = useCallback(
     (id: string) => {
@@ -130,6 +143,7 @@ export function App() {
   );
 
   const enter = (mode: Mode) => {
+    setFromLesson(false);
     if (mode === 'lan') setView('lan');
     else setView(mode);
   };
@@ -138,6 +152,14 @@ export function App() {
     setView('menu');
     await load();
   };
+
+  if (lanOnly) {
+    return (
+      <div className="app-shell" style={vars as React.CSSProperties}>
+        <LanView />
+      </div>
+    );
+  }
 
   if (fatal) {
     return (
@@ -175,7 +197,7 @@ export function App() {
     );
   }
 
-  const engineReady = boot.engine.state === 'ready';
+  const engineReady = ['ready', 'thinking', 'analyzing'].includes(boot.engine.state) && Boolean(boot.engine.humanModelPath);
 
   return (
     <div
@@ -191,30 +213,52 @@ export function App() {
           progress={boot.progress}
           engineReady={engineReady}
           onSelect={enter}
-          onSettings={() => setView('settings')}
+          onSettings={() => { setSettingsTarget(null); setView('settings'); }}
           onLearn={() => setView('learn')}
         />
       )}
 
-      {(view === 'free' || view === 'ranked') && (
+      {view === 'ranked' && <RankedLobby progress={boot.progress} engineReady={engineReady}
+        onBack={() => void backToMenu()} onSettings={() => { setSettingsTarget(boot.progress.activeSaveId ? null : 'saves'); setView('settings'); }}
+        onStart={(game) => { setRankedGame(game); setView('ranked-game'); }} />}
+
+      {(view === 'free' || (view === 'ranked-game' && rankedGame)) && (
         <GameView
           key={view}
-          mode={view}
+          mode={view === 'free' ? 'free' : 'ranked'}
+          initialGame={view === 'ranked-game' ? rankedGame ?? undefined : undefined}
           bootstrap={boot}
           lastEvent={lastEvent}
-          onBack={() => void backToMenu()}
+          fromLesson={view === 'free' && fromLesson}
+          onEngineSettings={view === 'free' && fromLesson ? () => {
+            setLessonSettings(true);
+            setSettingsTarget(null);
+            setView('settings');
+          } : undefined}
+          onBack={view === 'ranked-game' ? () => { setRankedGame(null); setView('ranked'); } : () => void backToMenu()}
         />
       )}
 
-      {view === 'lan' && <LanView bootstrap={boot!} onBack={() => setView('menu')} />}
-      {view === 'learn' && <LearnView bootstrap={boot!} onBack={() => setView('menu')} />}
+      {view === 'lan' && <LanView hostName={boot.progress.playerName} hoverMark={boot.config.ui.hoverMark} onBack={() => setView('menu')} />}
+      {(view === 'learn' || (view === 'settings' && lessonSettings) || (view === 'free' && fromLesson)) && (
+        <div hidden={view !== 'learn'} style={view === 'learn' ? { display: 'contents' } : undefined}>
+        <LearnView
+          hoverMark={boot.config.ui.hoverMark}
+          onBack={() => setView('menu')}
+          engineReady={engineReady}
+          onEngineSettings={() => { setLessonSettings(true); setSettingsTarget(null); setView('settings'); }}
+          onPlay={() => { setFromLesson(true); setView('free'); }}
+        />
+        </div>
+      )}
 
       {view === 'settings' && (
         <Settings
           bootstrap={boot}
           themeId={themeId}
+          initialSection={settingsTarget}
           onTheme={changeTheme}
-          onBack={() => setView('menu')}
+          onBack={() => { setView(lessonSettings ? 'learn' : 'menu'); setLessonSettings(false); }}
           onBootstrap={(b) => {
             setBoot(b);
             configureSound({ enabled: b.config.ui.sound, pack: b.config.ui.soundPack, volume: b.config.ui.soundVolume });

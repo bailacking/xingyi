@@ -1,15 +1,5 @@
 import type { Backend } from '@xingyi/shared';
 
-/**
- * 15 级 → 引擎参数（AGENTS.md §9.3）。
- *
- * 1~11 级用 human SL 模型（`rank_*` = 现代人类开局风格），**并且让搜索真正参与选点**：
- * 只设 `humanSLProfile` + `humanSLChosenMoveProp=1` 时，若 lambda 很大，KataGo 的搜索会被忽略，
- * `maxVisits` 调多少都不改棋力（官方 gtp_human5k_example.cfg 明确写了）。
- * 所以这里显式给 `lambda`（PIKL 抑制强度，越小越强）与 `rootExplore`（探索人类着法的比例），
- * 用 `maxVisits` 当一个连续的强度旋钮，档位才可能单调、可校准。
- * 12 级起切主模型：官方警告 human SL 在高段不保证真实强度。
- */
 export type LevelKind = 'human' | 'main';
 
 export interface LevelParams {
@@ -26,29 +16,32 @@ export interface LevelParams {
   note: string;
 }
 
+// 主模型档位按近似对数间隔分配搜索预算。一级以职业初段为校准目标。
+const mainVisits = [160, 112, 80, 40, 20, 10, 5];
+
+// 人类模仿档位按等级向上逐步提升棋风和搜索预算。保留旧阶梯的实测参数作为起点。
+const humanVisits = [1, 3, 4, 6, 8, 11, 16, 23, 32, 45, 64, 80, 100, 115, 130, 145, 160];
+const humanProfiles = humanVisits.map((maxVisits, index): LevelParams => ({
+  level: 25 - index,
+  kind: 'human',
+  profile: `rank_${20 - index}k`,
+  maxVisits,
+  lambda: 0.5,
+  rootExplore: 0.8,
+  note: index === 0 ? '新手起点' : '人类棋风',
+}));
+
 export const LEVEL_PARAMS: LevelParams[] = [
-  // 1~9：人类风格 + 搜索（lambda/rootExplore 固定，maxVisits 当强度旋钮）
-  { level: 1, kind: 'human', profile: 'rank_20k', maxVisits: 1, lambda: 0.5, rootExplore: 0.8, note: '约业余 20 级' },
-  { level: 2, kind: 'human', profile: 'rank_18k', maxVisits: 2, lambda: 0.5, rootExplore: 0.8, note: '约业余 18 级' },
-  { level: 3, kind: 'human', profile: 'rank_16k', maxVisits: 4, lambda: 0.5, rootExplore: 0.8, note: '约业余 16 级' },
-  { level: 4, kind: 'human', profile: 'rank_14k', maxVisits: 8, lambda: 0.5, rootExplore: 0.8, note: '约业余 14 级' },
-  { level: 5, kind: 'human', profile: 'rank_12k', maxVisits: 16, lambda: 0.5, rootExplore: 0.8, note: '约业余 12 级' },
-  { level: 6, kind: 'human', profile: 'rank_10k', maxVisits: 32, lambda: 0.5, rootExplore: 0.8, note: '约业余 10 级' },
-  { level: 7, kind: 'human', profile: 'rank_8k', maxVisits: 64, lambda: 0.5, rootExplore: 0.8, note: '约业余 8 级' },
-  { level: 8, kind: 'human', profile: 'rank_6k', maxVisits: 100, lambda: 0.5, rootExplore: 0.8, note: '约业余 6 级' },
-  { level: 9, kind: 'human', profile: 'rank_4k', maxVisits: 160, lambda: 0.5, rootExplore: 0.8, note: '约业余 4 级' },
-  // 10~15：主模型限 visits。实测 human SL 1k 再往上加访问量几乎不再变强（饱和），
-  // 而主模型 5 visits 就已经高它约 140 分，所以从 10 级起换主模型，用访问量做连续刻度。
-  { level: 10, kind: 'main', profile: null, maxVisits: 5, lambda: 0, rootExplore: 0, note: '主模型 5 visits' },
-  { level: 11, kind: 'main', profile: null, maxVisits: 10, lambda: 0, rootExplore: 0, note: '主模型 10 visits' },
-  { level: 12, kind: 'main', profile: null, maxVisits: 20, lambda: 0, rootExplore: 0, note: '主模型 20 visits' },
-  { level: 13, kind: 'main', profile: null, maxVisits: 40, lambda: 0, rootExplore: 0, note: '主模型 40 visits' },
-  { level: 14, kind: 'main', profile: null, maxVisits: 80, lambda: 0, rootExplore: 0, note: '主模型 80 visits' },
-  { level: 15, kind: 'main', profile: null, maxVisits: 160, lambda: 0, rootExplore: 0, note: '主模型 160 visits（满级）' },
+  ...mainVisits.map((maxVisits, index): LevelParams => ({
+    level: index + 1, kind: 'main', profile: null, maxVisits, lambda: 0, rootExplore: 0,
+    note: index === 0 ? '职业初段校准目标' : '主模型搜索',
+  })),
+  { level: 8, kind: 'human', profile: 'rank_1k', maxVisits: 160, lambda: 0.5, rootExplore: 0.8, note: '人类棋风' },
+  ...humanProfiles.reverse(),
 ];
 
 export function levelParams(level: number): LevelParams {
-  const k = Math.min(LEVEL_PARAMS.length, Math.max(1, Math.round(level)));
+  const k = Number.isFinite(level) ? Math.min(LEVEL_PARAMS.length, Math.max(1, Math.round(level))) : LEVEL_PARAMS.length;
   return LEVEL_PARAMS[k - 1]!;
 }
 
@@ -73,6 +66,7 @@ export function buildGtpArgs(cfg: EngineSpawnConfig): string[] {
   if (cfg.configPath) args.push('-config', cfg.configPath);
   if (cfg.humanModelPath) args.push('-human-model', cfg.humanModelPath);
   for (const extra of cfg.extraArgs ?? []) args.push(extra);
+  args.push('-override-config', 'reportAnalysisWinratesAs=BLACK');
   return args;
 }
 

@@ -94,17 +94,14 @@ export class Clock {
     return this.consumePeriods(c, -this.ms[c]);
   }
 
-  /** 一期不够扣就继续扣，扣完判负 */
+  /** 一次计算跨过的期数，休眠唤醒后也能立即结算。 */
   private consumePeriods(c: Color, overflow: number): Color | null {
-    let left = overflow;
-    while (this.periodsLeft[c] > 0) {
-      this.periodsLeft[c] -= 1;
-      const span = this.control.byoYomiSec * 1000;
-      if (left < span) {
-        this.ms[c] = span - left;
-        return null;
-      }
-      left -= span;
+    const span = this.control.byoYomiSec * 1000;
+    const expired = 1 + Math.floor(overflow / span);
+    this.periodsLeft[c] = Math.max(0, this.periodsLeft[c] - expired);
+    if (this.periodsLeft[c] > 0) {
+      this.ms[c] = span - (overflow % span);
+      return null;
     }
     this.ms[c] = 0;
     this.running = null;

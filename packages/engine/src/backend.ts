@@ -89,7 +89,6 @@ export async function detectHardware(): Promise<HardwareReport> {
     reason = '没有检测到可用的独立显卡信息，只能用纯 CPU（Eigen 后端）。';
     warnings.push('Eigen 后端极慢（大约慢一个数量级），级数越高越明显，只适合试玩。');
   }
-  warnings.push('KataGo 从 v1.18.2 起官方只发布 CUDA 构建；OpenCL / Eigen 请用 v1.18.1（待实测）。');
 
   return {
     os: `${os.type()} ${os.release()} (${process.arch})`,

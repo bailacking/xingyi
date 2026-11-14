@@ -18,6 +18,8 @@ data/models/
 data/games/
 data/calibration/
 data/config.json
+data/saves/
+data/mistakes/
 # 主题包：内置四套入库，用户导入的不入库（导入会写 data/themes/<id>/）
 data/themes/*
 !data/themes/.gitkeep
@@ -50,3 +52,4 @@ desktop.ini
 tmp/
 *.bak
 !data/**/*.bak
+progress.json.v1.bak

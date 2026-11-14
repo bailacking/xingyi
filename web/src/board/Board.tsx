@@ -13,6 +13,8 @@ export interface BoardProps {
   showOwnership?: boolean;
   /** 变化预览（幽灵子） */
   ghost?: { vertex: number; order: number }[] | null;
+  /** 教学提示用圆圈 */
+  markers?: number[];
   deadStones?: number[];
   /** 是否允许点棋盘落子 */
   interactive?: boolean;
@@ -35,6 +37,7 @@ export function Board(props: BoardProps) {
     ownership,
     showOwnership,
     ghost,
+    markers,
     deadStones,
     interactive,
     onPlace,
@@ -224,7 +227,7 @@ export function Board(props: BoardProps) {
 
       {/* 悬停预落子 */}
       {interactive && hover !== null && grid[hover] === 0 && (
-        <g pointerEvents="none">
+        <g className="board-hover" pointerEvents="none">
           {hoverMark === 'ghost' ? (
             <>
               <circle cx={px(hover)} cy={py(hover)} r={stoneR} fill="var(--primary)" opacity="0.3" />
@@ -265,6 +268,13 @@ export function Board(props: BoardProps) {
           )}
         </g>
       )}
+
+      {markers?.map((v) => (
+        <g key={v} fill="none" pointerEvents="none" aria-hidden="true">
+          <circle cx={px(v)} cy={py(v)} r={stoneR * (grid[v] ? 0.85 : 0.48)} stroke="var(--surface)" strokeWidth="9" />
+          <circle cx={px(v)} cy={py(v)} r={stoneR * (grid[v] ? 0.85 : 0.48)} stroke="var(--primary)" strokeWidth="5" />
+        </g>
+      ))}
 
       {/* 点击区 */}
       <g>

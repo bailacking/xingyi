@@ -1,14 +1,14 @@
-import { PROGRESS_SCHEMA_VERSION, type Mode } from '@xingyi/shared';
+import { BEGINNER_LEVEL, PLACEMENT_GAMES, PROGRESS_SCHEMA_VERSION, STRONGEST_LEVEL, type Mode } from '@xingyi/shared';
 import { RATING_PARAMS, updateRating, type RatingUpdate } from './glicko.js';
-import { ratingOf, type RankTable } from './levels.js';
+import { defaultRankTable, ratingOf, type RankTable } from './levels.js';
 
-/** 定级赛：3 盘自适应二分（AGENTS.md §8）。 */
+/** 定级赛：最多五盘自适应二分（AGENTS.md §8）。 */
 export interface PlacementState {
-  /** 已下盘数 0..3 */
+  /** 已下盘数 0..5 */
   stage: number;
-  /** 已确定的下界（赢过的最高级） */
+  /** 可能达到的最强级 */
   lo: number;
-  /** 已确定的上界（输过的最低级） */
+  /** 已确认的最弱边界 */
   hi: number;
   /** 下一局（或本局）的对手级 */
   current: number;
@@ -28,6 +28,7 @@ export interface GameRecord {
   deltaR: number;
   levelAfter: number;
   text?: string;
+  legacyLevels?: { opponent: number; after: number };
 }
 
 export interface Progress {
@@ -42,6 +43,8 @@ export interface Progress {
   /** 前 10 盘为暂定级 */
   provisional: boolean;
   gamesTotal: number;
+  gamesWon: number;
+  gamesLost: number;
   /** 本级已下盘数（升级判定用） */
   levelGames: number;
   levelWins: number;
@@ -58,9 +61,10 @@ export interface Progress {
   pendingPromotion: boolean;
   placement: PlacementState;
   history: GameRecord[];
+  legacyPlacement?: PlacementState;
 }
 
-export function createProgress(playerName = '无名', maxLevel = 15, now = new Date()): Progress {
+export function createProgress(playerName = '无名', maxLevel = BEGINNER_LEVEL, now = new Date()): Progress {
   const first = Math.ceil((1 + maxLevel) / 2);
   return {
     schemaVersion: PROGRESS_SCHEMA_VERSION,
@@ -72,6 +76,8 @@ export function createProgress(playerName = '无名', maxLevel = 15, now = new D
     RD: RATING_PARAMS.initialRD,
     provisional: true,
     gamesTotal: 0,
+    gamesWon: 0,
+    gamesLost: 0,
     levelGames: 0,
     levelWins: 0,
     streak: 0,
@@ -85,18 +91,7 @@ export function createProgress(playerName = '无名', maxLevel = 15, now = new D
   };
 }
 
-/** 定级赛下一局的对手级：赢取上整、输取下整（AGENTS.md §8 的定级赛表）。 */
-export function placementNextLevel(state: PlacementState, maxLevel: number): number {
-  const mid = (state.lo + state.hi) / 2;
-  let next = Math.round(mid);
-  if (next === state.current) next = state.current + 1 <= maxLevel ? state.current + 1 : state.current - 1;
-  return Math.min(maxLevel, Math.max(1, next));
-}
-
-/**
- * 记一盘定级赛。第 3 盘后定级：取"赢过的最高级"，全负则 1 级。
- * 返回定级结果（未完成返回 null）。
- */
+/** 记一盘定级结果，在剩余的级数区间内二分。 */
 export function recordPlacementResult(
   p: Progress,
   ranks: RankTable,
@@ -107,31 +102,26 @@ export function recordPlacementResult(
   if (pl.done) return null;
   pl.results.push({ level: pl.current, won });
   pl.stage += 1;
-  if (won) pl.lo = Math.max(pl.lo, pl.current);
-  else pl.hi = Math.min(pl.hi, pl.current);
+  if (won) pl.hi = pl.current;
+  else pl.lo = Math.min(pl.hi, pl.current + 1);
 
   p.gamesTotal += 1;
+  if (won) p.gamesWon += 1;
+  else p.gamesLost += 1;
   p.streak = won ? Math.max(1, p.streak + 1) : Math.min(-1, p.streak - 1);
   p.bestStreak = Math.max(p.bestStreak, p.streak);
-
-  if (pl.stage >= 3) {
-    pl.done = true;
-    const level = Math.min(ranks.maxLevel, Math.max(1, pl.lo));
-    p.level = level;
-    p.R = ratingOf(ranks, level);
+  p.updatedAt = now.toISOString();
+  pl.done = pl.lo === pl.hi || pl.stage >= PLACEMENT_GAMES;
+  pl.current = pl.done ? pl.hi : Math.floor((pl.lo + pl.hi) / 2);
+  p.level = pl.current;
+  p.R = ratingOf(ranks, p.level);
+  if (pl.done) {
     p.RD = 220;
     p.levelGames = 0;
     p.levelWins = 0;
     p.provisional = p.gamesTotal < RATING_PARAMS.provisionalGames;
-    p.updatedAt = now.toISOString();
-    return { done: true, level };
   }
-
-  pl.current = won
-    ? Math.min(pl.hi, Math.max(pl.current + 1, Math.ceil((pl.lo + pl.hi) / 2)))
-    : Math.max(pl.lo, Math.min(pl.current - 1, Math.floor((pl.lo + pl.hi) / 2)));
-  p.updatedAt = now.toISOString();
-  return { done: false, level: pl.current };
+  return { done: pl.done, level: pl.current };
 }
 
 export interface RankedGameInput {
@@ -144,6 +134,7 @@ export interface RankedGameInput {
   now?: Date;
   mode?: Mode;
   text?: string;
+  exam?: boolean;
 }
 
 export interface RankedOutcome {
@@ -165,39 +156,39 @@ export function evaluateLevel(p: Progress, ranks: RankTable): {
   pending: boolean;
   reason: string;
 } {
-  const max = ranks.maxLevel;
   const notes: string[] = [];
-  const atMax = p.level >= max;
+  const atStrongest = p.level === STRONGEST_LEVEL;
+  const atBeginner = p.level === ranks.maxLevel;
   const winRate = p.levelGames > 0 ? p.levelWins / p.levelGames : 0;
 
-  const nextRating = atMax ? Infinity : ratingOf(ranks, p.level + 1);
-  const prevRating = p.level <= 1 ? -Infinity : ratingOf(ranks, p.level - 1);
+  const nextRating = atStrongest ? Infinity : ratingOf(ranks, p.level - 1);
+  const prevRating = atBeginner ? -Infinity : ratingOf(ranks, p.level + 1);
 
   // 阶梯不要求等距（实测每级 50~190 分），阈值按**本级局部步长**换算，
   // 否则窄档位一局就升、宽档位怎么打都不升。
   const curRating = ratingOf(ranks, p.level);
-  const stepUp = atMax ? 0 : Math.max(1, nextRating - curRating);
-  const stepDown = p.level <= 1 ? 0 : Math.max(1, curRating - prevRating);
+  const stepUp = atStrongest ? 0 : Math.max(1, nextRating - curRating);
+  const stepDown = atBeginner ? 0 : Math.max(1, curRating - prevRating);
   const thrUp = Math.min(120, Math.max(20, Math.round(stepUp * 0.35)));
   const thrDown = Math.min(150, Math.max(30, Math.round(stepDown * 0.5)));
   const promoteLine = nextRating - thrUp;
   const demoteLine = prevRating - thrDown;
 
   const promote =
-    !atMax &&
+    !atStrongest &&
     p.R >= promoteLine &&
     p.levelGames >= 3 &&
     (p.streak >= 2 || winRate >= 0.6);
 
   const demote =
-    p.level > 1 &&
+    !atBeginner &&
     p.protection <= 0 &&
     p.demotionBuffer <= 0 &&
     p.R < demoteLine &&
     p.streak <= -2;
 
   // 「可进一级」：连胜 ≥3 且已够分（考核局由玩家点出来）
-  const pending = !atMax && p.streak >= 3 && p.R >= promoteLine && p.promotionCooldown <= 0;
+  const pending = !atStrongest && p.streak >= 3 && p.R >= promoteLine && p.promotionCooldown <= 0;
 
   if (promote) notes.push(`R=${p.R} ≥ ${promoteLine}（本级步长 ${stepUp} 分），满足升级条件`);
   if (demote) notes.push(`R=${p.R} < ${demoteLine}（本级步长 ${stepDown} 分）且连败，触发降级`);
@@ -226,8 +217,12 @@ export function applyRankedGame(p: Progress, input: RankedGameInput): RankedOutc
   p.R = rating.R;
   p.RD = rating.RD;
   p.gamesTotal += 1;
-  p.levelGames += 1;
-  if (input.won) p.levelWins += 1;
+  if (input.won) p.gamesWon += 1;
+  else p.gamesLost += 1;
+  if (!input.exam) {
+    p.levelGames += 1;
+    if (input.won) p.levelWins += 1;
+  }
   p.streak = input.won ? Math.max(1, p.streak + 1) : Math.min(-1, p.streak - 1);
   p.bestStreak = Math.max(p.bestStreak, p.streak);
   p.protection = Math.max(0, p.protection - 1);
@@ -237,8 +232,10 @@ export function applyRankedGame(p: Progress, input: RankedGameInput): RankedOutc
 
   let change: 'up' | 'down' | null = null;
   const verdict = evaluateLevel(p, ranks);
-  if (verdict.promote) {
-    p.level = Math.min(ranks.maxLevel, p.level + 1);
+  if (input.exam) {
+    p.pendingPromotion = false;
+  } else if (verdict.promote) {
+    p.level -= 1;
     p.levelGames = 0;
     p.levelWins = 0;
     p.protection = 3;
@@ -246,7 +243,7 @@ export function applyRankedGame(p: Progress, input: RankedGameInput): RankedOutc
     change = 'up';
     notes.push(`升为 ${p.level} 级`);
   } else if (verdict.demote) {
-    p.level = Math.max(1, p.level - 1);
+    p.level += 1;
     p.levelGames = 0;
     p.levelWins = 0;
     p.demotionBuffer = 5;
@@ -291,7 +288,7 @@ export function applyJumpExam(
   input: { scoreDiff: number; moves: number; now?: Date; text?: string },
 ): RankedOutcome {
   const now = input.now ?? new Date();
-  const target = Math.min(ranks.maxLevel, Math.max(p.level + 1, targetLevel));
+  const target = Math.max(STRONGEST_LEVEL, p.level - 2, Math.min(p.level - 1, targetLevel));
   const out = applyRankedGame(p, {
     won,
     scoreDiff: input.scoreDiff,
@@ -301,8 +298,9 @@ export function applyJumpExam(
     now,
     mode: 'ranked',
     text: input.text,
+    exam: true,
   });
-  if (won && target > p.level) {
+  if (won && target < p.level) {
     p.level = target;
     p.levelGames = 0;
     p.levelWins = 0;
@@ -310,6 +308,8 @@ export function applyJumpExam(
     p.pendingPromotion = false;
     out.change = 'up';
     out.toLevel = p.level;
+    const entry = p.history.at(-1);
+    if (entry) entry.levelAfter = target;
     out.notes.push(`考核通过，跳至 ${target} 级`);
   } else if (!won) {
     p.promotionCooldown = 3;
@@ -321,16 +321,52 @@ export function applyJumpExam(
   return out;
 }
 
-/** 兼容旧存档：补齐缺失字段，避免改结构后读档就炸。 */
-export function normalizeProgress(raw: unknown, maxLevel = 15): Progress {
-  const base = createProgress();
-  if (!raw || typeof raw !== 'object') return base;
-  const p = { ...base, ...(raw as Partial<Progress>) } as Progress;
-  p.schemaVersion = PROGRESS_SCHEMA_VERSION;
-  p.placement = { ...base.placement, ...((raw as Partial<Progress>).placement ?? {}) };
-  p.history = Array.isArray(p.history) ? p.history.slice(-500) : [];
-  p.level = Math.min(maxLevel, Math.max(1, Number(p.level) || 1));
-  if (!Number.isFinite(p.R)) p.R = RATING_PARAMS.initialR;
+// v1 的对手参数尽可能映射到同一难度，旧的编号与定级结果随存档保留。
+const legacyLevels = [25, 23, 21, 19, 17, 15, 13, 11, 9, 7, 6, 5, 4, 3, 1];
+const legacyLevel = (value: number): number => legacyLevels[Math.min(15, Math.max(1, Math.round(value || 1))) - 1]!;
+
+export function normalizeProgress(raw: unknown, maxLevel = BEGINNER_LEVEL, ranks = defaultRankTable(maxLevel)): Progress {
+  const base = createProgress('无名', maxLevel);
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return base;
+  const src = raw as Partial<Progress>;
+  const p = { ...base, ...src, schemaVersion: PROGRESS_SCHEMA_VERSION };
+  p.placement = { ...base.placement, ...src.placement };
+  p.history = Array.isArray(src.history) ? src.history.filter((row) => row && typeof row === 'object').slice(-500) : [];
+  if (!Number.isInteger(src.gamesWon) || !Number.isInteger(src.gamesLost)) {
+    const results = [...(src.legacyPlacement?.results ?? []), ...(p.placement.results ?? []), ...p.history];
+    p.gamesWon = results.filter((row) => row?.won === true).length;
+    p.gamesLost = results.filter((row) => row?.won === false).length;
+  }
+  if (src.schemaVersion !== PROGRESS_SCHEMA_VERSION) {
+    if (src.placement) p.legacyPlacement = p.placement;
+    p.history = p.history.map((row) => ({
+      ...row,
+      legacyLevels: { opponent: row.level, after: row.levelAfter },
+      level: legacyLevel(row.level),
+      levelAfter: legacyLevel(row.levelAfter),
+    }));
+    if (p.placement.done) {
+      const oldLevel = Math.min(15, Math.max(1, Math.round(Number(src.level) || 1)));
+      p.level = legacyLevel(oldLevel);
+      const oldAnchor = 1525 + (oldLevel - 8) * 90;
+      const offset = Number.isFinite(src.R) ? Math.max(-75, Math.min(75, src.R! - oldAnchor)) : 0;
+      p.R = ratingOf(ranks, p.level) + offset;
+      p.placement = { ...base.placement, done: true, current: p.level, lo: p.level, hi: p.level };
+      p.RD = Math.max(160, Number(p.RD) || 0);
+    } else {
+      p.level = base.level;
+      p.R = base.R;
+      p.RD = base.RD;
+      p.placement = base.placement;
+      p.provisional = true;
+    }
+    p.levelGames = 0;
+    p.levelWins = 0;
+    p.streak = 0;
+    p.pendingPromotion = false;
+  }
+  p.level = Math.min(maxLevel, Math.max(1, Math.round(Number(p.level) || base.level)));
+  if (!Number.isFinite(p.R)) p.R = ratingOf(ranks, p.level);
   if (!Number.isFinite(p.RD)) p.RD = RATING_PARAMS.initialRD;
   return p;
 }

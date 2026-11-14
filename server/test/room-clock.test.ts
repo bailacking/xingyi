@@ -86,13 +86,13 @@ describe('房间棋钟（复用 clock.ts 语义）', () => {
   it('读秒超期一期一期扣，扣完判负', () => {
     const room = new Room('AAA116', 9, 7.5, { mainSec: 0, byoYomiSec: 10, periods: 1 });
     seated(room);
-    vi.advanceTimersByTime(11000); // 超 1 秒 → 用掉唯一一期
-    let view = room.snapshot().clock!;
-    expect(view.periods.B).toBe(0);
-    expect(view.blackMs).toBe(9000);
+    vi.advanceTimersByTime(9999);
+    const view = room.snapshot().clock!;
+    expect(view.periods.B).toBe(1);
+    expect(view.blackMs).toBe(1);
     expect(room.status).toBe('playing');
 
-    vi.advanceTimersByTime(10000); // 这一期也走完 → 黑超时
+    vi.advanceTimersByTime(1);
     expect(room.snapshot().status).toBe('finished');
     expect(room.snapshot().resultReason).toBe('timeout');
     expect(room.snapshot().result).toContain('黑超时');
@@ -200,7 +200,7 @@ describe('房间 API 的时间制', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/api/room',
-      payload: { size: 9, name: '房主', clientId: 'a', timeControl: { mainSec: 180, byoYomiSec: 0, periods: 0 } },
+      payload: { size: 9, name: '房主', clientId: 'a'.repeat(32), timeControl: { mainSec: 180, byoYomiSec: 0, periods: 0 } },
     });
     expect(res.statusCode).toBe(200);
     const room = res.json().room;
@@ -211,7 +211,7 @@ describe('房间 API 的时间制', () => {
     const joined = await app.inject({
       method: 'POST',
       url: `/api/room/${room.code}/join`,
-      payload: { name: '棋友', clientId: 'b' },
+      payload: { name: '棋友', clientId: 'b'.repeat(32) },
     });
     expect(joined.json().room.status).toBe('playing');
     expect(joined.json().room.clock.running).toBe('B');
@@ -224,11 +224,11 @@ describe('房间 API 的时间制', () => {
     const none = await app.inject({
       method: 'POST',
       url: '/api/room',
-      payload: { size: 9, clientId: 'x', timeControl: null },
+      payload: { size: 9, clientId: 'd'.repeat(32), timeControl: null },
     });
     expect(none.json().room.clock).toBeNull();
 
-    const def = await app.inject({ method: 'POST', url: '/api/room', payload: { size: 9, clientId: 'y' } });
+    const def = await app.inject({ method: 'POST', url: '/api/room', payload: { size: 9, clientId: 'e'.repeat(32) } });
     expect(def.json().room.clock.control).toEqual({ mainSec: 600, byoYomiSec: 30, periods: 3 });
   });
 
@@ -236,7 +236,7 @@ describe('房间 API 的时间制', () => {
     const created = await app.inject({
       method: 'POST',
       url: '/api/room',
-      payload: { size: 9, clientId: 'host', name: '房主', handicap: 4, timeControl: null },
+      payload: { size: 9, clientId: 'a'.repeat(32), name: '房主', handicap: 4, timeControl: null },
     });
     const code = created.json().room.code;
     expect(created.json().room.handicap).toBe(4);
@@ -248,7 +248,7 @@ describe('房间 API 的时间制', () => {
     const changed = await app.inject({
       method: 'POST',
       url: `/api/room/${code}/settings`,
-      payload: { clientId: 'host', timeControl: { mainSec: 300, byoYomiSec: 30, periods: 3 }, handicap: 0 },
+      payload: { clientId: 'a'.repeat(32), timeControl: { mainSec: 300, byoYomiSec: 30, periods: 3 }, handicap: 0 },
     });
     expect(changed.statusCode).toBe(200);
     expect(changed.json().room.handicap).toBe(0);
@@ -259,7 +259,7 @@ describe('房间 API 的时间制', () => {
     const stranger = await app.inject({
       method: 'POST',
       url: `/api/room/${code}/settings`,
-      payload: { clientId: 'stranger', handicap: 2 },
+      payload: { clientId: 'b'.repeat(32), handicap: 2 },
     });
     expect(stranger.statusCode).toBe(403);
 
@@ -267,16 +267,16 @@ describe('房间 API 的时间制', () => {
     const empty = await app.inject({
       method: 'POST',
       url: `/api/room/${code}/settings`,
-      payload: { clientId: 'host' },
+      payload: { clientId: 'a'.repeat(32) },
     });
     expect(empty.statusCode).toBe(400);
 
     // 对手入座后开局 → 房主也改不了
-    await app.inject({ method: 'POST', url: `/api/room/${code}/join`, payload: { clientId: 'guest', name: '棋友' } });
+    await app.inject({ method: 'POST', url: `/api/room/${code}/join`, payload: { clientId: 'c'.repeat(32), name: '棋友' } });
     const late = await app.inject({
       method: 'POST',
       url: `/api/room/${code}/settings`,
-      payload: { clientId: 'host', handicap: 2 },
+      payload: { clientId: 'a'.repeat(32), handicap: 2 },
     });
     expect(late.statusCode).toBe(400);
     expect(late.json().error).toContain('已经开局');

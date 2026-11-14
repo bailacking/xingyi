@@ -10,7 +10,7 @@ interface MenuProps {
 
 export function Menu({ progress, engineReady, onSelect, onSettings, onLearn }: MenuProps) {
   const modes: { mode: Mode; disabled: boolean; note?: string }[] = [
-    { mode: 'ranked', disabled: !engineReady, note: engineReady ? undefined : '需先配置引擎' },
+    { mode: 'ranked', disabled: false, note: engineReady ? undefined : '查看战绩与开局条件' },
     { mode: 'free', disabled: false },
     { mode: 'lan', disabled: false, note: '局域网 · 不计进度' },
   ];
@@ -21,7 +21,7 @@ export function Menu({ progress, engineReady, onSelect, onSettings, onLearn }: M
         <div className="menu-eyebrow">本地围棋 · 以练为主</div>
         <h1 className="menu-title">星弈</h1>
         <div className="menu-sub">
-          {progress.placement.done
+          {!progress.activeSaveId ? '未选择修习存档' : progress.placement.done
             ? `${progress.playerName} · ${progress.levelCn}${progress.provisional ? '（暂定）' : ''}`
             : '尚未定级'}
         </div>
@@ -59,14 +59,12 @@ export function Menu({ progress, engineReady, onSelect, onSettings, onLearn }: M
 
         {!engineReady && (
           <div className="hint" style={{ marginTop: 30, lineHeight: 1.9 }}>
-            还没配置 KataGo：现在可以进「自在」用离线对手试手，棋盘与规则都是真的。
-            <br />
-            修习需要引擎，配好后在菜单里就能进。
+            「自在」可用离线对手。完成 KataGo 与双模型配置后即可进入「修习」。
           </div>
         )}
-        {!progress.ranksCalibrated && progress.placement.done && (
+        {!progress.ranksCalibrated && (
           <div className="hint" style={{ marginTop: 12 }}>
-            等级校准分尚未实测，升降级幅度只是初版参数（设置页可看当前等级表状态）。
+            二十五级为新手起点。一级以职业初段为校准目标，当前难度曲线为暂定。
           </div>
         )}
         {progress.streak >= 2 && <div className="stage-note">{levelCn(Math.abs(progress.streak)).replace('级', '')}连胜</div>}

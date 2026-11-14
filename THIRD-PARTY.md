@@ -9,8 +9,8 @@
 
 | 名称 | 用途 | 许可证 | 状态 |
 |---|---|---|---|
-| [KataGo](https://github.com/lightvector/KataGo) | 围棋引擎（用户自行安装，不随仓库分发） | MIT | ⚠️ 待核实 |
-| KataGo 神经网络权重 | AI 模型（用户自行下载，不随仓库分发） | 以官方发布页说明为准 | ⚠️ 待核实 |
+| [KataGo](https://github.com/lightvector/KataGo) | 围棋引擎，由星弈从官方发行页下载 | [KataGo 源码许可及第三方组件说明](https://github.com/lightvector/KataGo/blob/master/LICENSE) | 已核对官方来源 |
+| [KataGo 神经网络权重](https://katagotraining.org/network_license/) | 主模型与 Human SL，从官方发行页下载 | 见官方模型许可与各发行页 | 已核对官方来源 |
 | ~~Sabaki 生态（`@sabaki/shudan` / `@sabaki/sgf` / `@sabaki/go-board`）~~ | **当前未使用**：棋盘为自绘 SVG，SGF 解析与盘面逻辑均自研；仅早期设计参考过其思路 | — | 已移除依赖（2026-10-17） |
 | [Fastify](https://github.com/fastify/fastify) | HTTP 服务 | MIT | ⚠️ 待核实 |
 | [ws](https://github.com/websockets/ws) | WebSocket（联机） | MIT | ⚠️ 待核实 |
@@ -39,4 +39,4 @@
 - 只用 **CC / 公有领域 / 自建** 内容
 - 每份数据目录必须有 `SOURCES.md`，记录**逐条或逐批**的来源、许可证、采集日期
 - 不收录来源不明的网络流传素材（尤其是仍在印刷发行的棋书内容）
-- 现状：`data/joseki/` 的 6 条定式为自建并逐手经规则引擎验算；原 `data/tsumego/` 自建题库已于 2026-11-12 整体移除
+- 围棋入门课的棋盘局面及文字为自建，规则参考[中国围棋协会《中国围棋规则》](https://wqwh.weiqi.org.cn/rules/)。

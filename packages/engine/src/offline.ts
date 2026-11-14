@@ -1,4 +1,4 @@
-import { PASS, neighbors, type Color, type Vertex } from '@xingyi/shared';
+import { BEGINNER_LEVEL, PASS, STRONGEST_LEVEL, neighbors, type Color, type Vertex } from '@xingyi/shared';
 import { Board, colorCode, opposite, scoreArea } from '@xingyi/rules';
 
 /**
@@ -68,8 +68,8 @@ export function offlineMove(req: OfflineMoveRequest): Vertex {
   const meaningful = legal.filter((v) => !ownArea.has(v) && !oppArea.has(v));
   if (crowded && meaningful.length === 0) return PASS;
 
-  const level = Math.max(1, Math.min(15, Math.round(req.level)));
-  const skill = (level - 1) / 14; // 0..1
+  const level = Math.max(STRONGEST_LEVEL, Math.min(BEGINNER_LEVEL, Math.round(req.level)));
+  const skill = (BEGINNER_LEVEL - level) / (BEGINNER_LEVEL - STRONGEST_LEVEL);
   const noise = (1 - skill) * 26 + 2;
   const rnd = mulberry32((req.seed ?? 1) * 2654435761);
 

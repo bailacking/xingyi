@@ -1,225 +1,152 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Game } from '@xingyi/rules';
+import { useEffect, useRef, useState } from 'react';
+import { BLACK, WHITE, scoreText } from '@xingyi/rules';
 import { Board } from '../board/Board';
-import type { Bootstrap } from '../api';
+import { MistakeNotebookView } from './MistakeNotebookView';
+import {
+  RULES_LESSONS, lessonMarkers, lessonTask, passLesson, playLessonPoint, scoreLesson, startLesson,
+} from './rulesCourse';
+import '../styles/learn.css';
 
 interface LearnViewProps {
-  bootstrap: Bootstrap;
+  hoverMark: 'square' | 'ghost';
   onBack: () => void;
+  onPlay: () => void;
+  engineReady: boolean;
+  onEngineSettings: () => void;
 }
 
-interface JosekiItem {
-  id: string;
-  title: string;
-  category: string;
-  size: number;
-  moves: number;
-}
+export function LearnView({ hoverMark, onBack, onPlay, engineReady, onEngineSettings }: LearnViewProps) {
+  const [index, setIndex] = useState(0);
+  const [reached, setReached] = useState(0);
+  const scrollRef = useRef<HTMLElement>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const lesson = RULES_LESSONS[index]!;
+  const final = index === RULES_LESSONS.length - 1;
+  const [state, setState] = useState(() => startLesson(lesson.id));
+  const [showHint, setShowHint] = useState(false);
+  const [notebookOpen, setNotebookOpen] = useState(false);
 
-/** 详情不带答案：只给总手数与每手的先后手 */
-interface JosekiView {
-  id: string;
-  title: string;
-  size: number;
-  category: string;
-  note: string;
-  total: number;
-  colors: ('B' | 'W')[];
-}
-
-interface JosekiCheck {
-  correct: boolean;
-  expected?: string;
-  done: boolean;
-  step: number;
-  total: number;
-  message: string;
-}
-
-/**
- * 定式三只请求写在这里而不是 web/src/api.ts：那是多张卡共用的文件（W2/W4 也在改），
- * 本卡的文件边界只到 LearnView。合卡时可以整体挪回 api.ts。
- */
-async function josekiReq<T>(url: string, init?: RequestInit): Promise<T> {
-  const headers: Record<string, string> = {};
-  if (init?.body !== undefined) headers['content-type'] = 'application/json';
-  const res = await fetch(url, { ...init, headers });
-  const text = await res.text();
-  let data: unknown = null;
-  try {
-    data = text ? JSON.parse(text) : null;
-  } catch {
-    data = text;
+  const { game } = state;
+  const scoring = lesson.id === 'score';
+  const needsPass = scoring && game.status === 'playing';
+  const needsDead = scoring && game.status === 'scoring';
+  const feedback = state.feedback || (needsPass ? '当前轮到黑方。' : '');
+  const score = scoring && state.complete ? game.score() : null;
+  const grid = Array.from(game.board.grid);
+  const ownership = score ? grid.map(() => 0) : null;
+  if (score && ownership) {
+    for (const v of game.deadStones) grid[v] = 0;
+    for (const v of score.blackTerritory) ownership[v] = 1;
+    for (const v of score.whiteTerritory) ownership[v] = -1;
   }
-  if (!res.ok) {
-    const raw = data as { error?: unknown } | null;
-    const message =
-      raw && typeof raw === 'object' && typeof raw.error === 'string' ? raw.error : `请求失败（${res.status}）`;
-    throw new Error(message);
-  }
-  return data as T;
-}
 
-const josekiApi = {
-  list: () => josekiReq<{ joseki: JosekiItem[] }>('/api/joseki'),
-  get: (id: string) => josekiReq<JosekiView>(`/api/joseki/${encodeURIComponent(id)}`),
-  check: (id: string, step: number, vertex: number) =>
-    josekiReq<JosekiCheck>(`/api/joseki/${encodeURIComponent(id)}/check`, {
-      method: 'POST',
-      body: JSON.stringify({ step, vertex }),
-    }),
-};
-
-/** 按已走的手数重放盘面（颜色由服务端给的 colors 决定，不靠奇偶猜） */
-function josekiGrid(view: JosekiView, moves: number[]): number[] {
-  const game = new Game({ size: view.size as 9 | 13 | 19, komi: 7.5 });
-  moves.forEach((vertex, i) => {
-    game.play(view.colors[i] ?? (i % 2 === 0 ? 'B' : 'W'), vertex);
-  });
-  return Array.from(game.board.grid);
-}
-
-export function LearnView({ bootstrap, onBack }: LearnViewProps) {
-  const [josekiList, setJosekiList] = useState<JosekiItem[]>([]);
-  const [joseki, setJoseki] = useState<JosekiView | null>(null);
-  const [josekiMoves, setJosekiMoves] = useState<number[]>([]);
-  const [josekiMsg, setJosekiMsg] = useState<string | null>(null);
-  const [josekiDone, setJosekiDone] = useState(false);
-  const [josekiBusy, setJosekiBusy] = useState(false);
+  const goTo = (next: number) => {
+    setIndex(next);
+    setShowHint(false);
+    setState(startLesson(RULES_LESSONS[next]!.id));
+    setReached(Math.max(reached, next));
+  };
 
   useEffect(() => {
-    void josekiApi
-      .list()
-      .then((res) => setJosekiList(res.joseki))
-      .catch(() => setJosekiList([]));
-  }, []);
+    if (index === 0 && reached === 0) return;
+    scrollRef.current?.scrollTo(0, 0);
+    headingRef.current?.focus({ preventScroll: true });
+  }, [index, reached]);
 
-  const openJoseki = useCallback(async (id: string): Promise<void> => {
-    setJosekiMoves([]);
-    setJosekiMsg(null);
-    setJosekiDone(false);
-    setJosekiBusy(true);
-    try {
-      setJoseki(await josekiApi.get(id));
-    } catch (err) {
-      setJoseki(null);
-      setJosekiMsg(err instanceof Error ? err.message : '这个定式加载失败了');
-    } finally {
-      setJosekiBusy(false);
-    }
-  }, []);
-
-  const restartJoseki = (): void => {
-    setJosekiMoves([]);
-    setJosekiMsg(null);
-    setJosekiDone(false);
-  };
-
-  const playJoseki = async (vertex: number): Promise<void> => {
-    if (!joseki || josekiDone || josekiBusy) return;
-    setJosekiBusy(true);
-    try {
-      const res = await josekiApi.check(joseki.id, josekiMoves.length, vertex);
-      if (res.correct) {
-        setJosekiMoves((m) => [...m, vertex]);
-        setJosekiDone(res.done);
-        setJosekiMsg(res.done ? res.message : null);
-      } else {
-        setJosekiMsg(res.message);
-      }
-    } catch (err) {
-      setJosekiMsg(err instanceof Error ? err.message : '这一手没送出去，再试一次');
-    } finally {
-      setJosekiBusy(false);
-    }
-  };
-
-  const josekiGridNow = useMemo(() => (joseki ? josekiGrid(joseki, josekiMoves) : null), [joseki, josekiMoves]);
-
-  const boardSize = (joseki?.size ?? 19) as 9 | 13 | 19;
-  const boardGrid = josekiGridNow ?? new Array(boardSize ** 2).fill(0);
-  const boardInteractive = Boolean(joseki) && !josekiDone && !josekiBusy;
-  const boardProgress = joseki ? `第 ${Math.min(josekiMoves.length + 1, joseki.total)} / ${joseki.total} 手` : '';
+  if (notebookOpen) {
+    return <MistakeNotebookView hoverMark={hoverMark} onBack={() => setNotebookOpen(false)} />;
+  }
 
   return (
-    <div className="game">
-      <div className="board-column">
-        <div className="topbar">
-          <button className="linkish" onClick={onBack}>
-            ← 返回
-          </button>
-          <span className="brand">星弈</span>
-          <span className="badge">教学</span>
-          <span className="grow" />
-          {boardProgress && <span className="badge">{boardProgress}</span>}
-        </div>
-        <div className="board-wrap">
-          <Board
-            size={boardSize}
-            grid={boardGrid}
-            lastMove={josekiMoves.at(-1) ?? null}
-            ownership={null}
-            showOwnership={false}
-            ghost={null}
-            hoverMark={bootstrap.config.ui.hoverMark}
-            deadStones={[]}
-            interactive={boardInteractive}
-            onPlace={(v) => void playJoseki(v)}
-          />
-        </div>
-      </div>
-
-      <aside className="side">
-        <section className="panel">
-          <div className="panel-head">
-            <span className="panel-title">定式练习</span>
-            <span className="panel-sub">角部常用下法 · 不计进度</span>
+    <main className="learn-screen" ref={scrollRef}>
+      <div className="learn-inner">
+        <header className="learn-header">
+          <button className="linkish" onClick={onBack}>← 返回首页</button>
+          <div className="learn-heading">
+            <button className="btn" onClick={() => setNotebookOpen(true)}>我的错题</button>
+            <div>
+              <h1>围棋入门</h1>
+              <p className="hint">零基础 · 约 10 分钟</p>
+            </div>
           </div>
+        </header>
 
-          <div className="room-list" style={{ marginTop: 10 }}>
-            {josekiList.map((j) => (
-              <button
-                key={j.id}
-                className={`room-item${joseki?.id === j.id ? ' is-active' : ''}`}
-                onClick={() => void openJoseki(j.id)}
-              >
-                <span>{j.title}</span>
-                <span className="hint">
-                  {j.category} · {j.moves} 手
-                </span>
-              </button>
-            ))}
-          </div>
-          {josekiList.length === 0 && <div className="hint">定式表还没加载出来。</div>}
-          <div className="hint" style={{ marginTop: 6 }}>
-            定式是角上经过验证的下法。照着手顺摆，摆错会告诉你是第几手、该下哪儿。
-          </div>
+        <nav className="learn-steps" aria-label="课程目录">
+          {RULES_LESSONS.map((item, i) => (
+            <button
+              key={item.id}
+              className="btn"
+              aria-current={i === index ? 'step' : undefined}
+              disabled={i > reached}
+              onClick={() => goTo(i)}
+            >
+              {i + 1}. {item.title}
+            </button>
+          ))}
+        </nav>
 
-          {joseki && (
-            <div style={{ marginTop: 12 }}>
-              <div className="panel-head" style={{ padding: 0 }}>
-                <span className="panel-title" style={{ fontSize: 15 }}>
-                  {joseki.title}
-                </span>
-                <span className="panel-sub">{josekiDone ? '已完成' : `${joseki.category} · ${joseki.total} 手`}</span>
-              </div>
-              <div className="hint" style={{ marginTop: 4 }}>
-                {joseki.note}
-              </div>
-              {josekiMsg && <div className={`notice${josekiDone ? '' : ' hint-warn'}`}>{josekiMsg}</div>}
-              {!josekiDone && !josekiMsg && (
-                <div className="hint">轮到{joseki.colors[josekiMoves.length] === 'W' ? '白' : '黑'}棋：点棋盘落子。</div>
+        <div className="learn-layout">
+          <div className="learn-instructions">
+            <section className="panel">
+              <p className="hint learn-progress">第 {index + 1} 课 / 共 {RULES_LESSONS.length} 课</p>
+              <h2 ref={headingRef} tabIndex={-1}>{lesson.title}</h2>
+              <p>{lesson.explanation}</p>
+              {!state.complete && <p className="learn-task">{lessonTask(lesson.id, state.stage)}</p>}
+              {lesson.id === 'turns' && <p className="hint">胜负看终局谁占得多。下面几课会带你练习提子和数子。</p>}
+            </section>
+          </div>
+          <div className="board-wrap learn-board">
+            <Board
+              size={game.size}
+              grid={grid}
+              lastMove={game.lastMove}
+              markers={lessonMarkers(lesson.id, state, showHint)}
+              interactive={!scoring && !state.complete}
+              onPlace={(v) => setState(playLessonPoint(lesson.id, state, v))}
+              onToggleDead={needsDead ? (v) => setState(playLessonPoint(lesson.id, state, v)) : undefined}
+              deadStones={needsDead ? state.selected : undefined}
+              ownership={ownership}
+              showOwnership={score !== null}
+              hoverMark={hoverMark}
+            />
+          </div>
+          <section className="panel learn-response" aria-label="练习反馈">
+            <div role="status" aria-atomic="true" className="learn-feedback">
+              {feedback}
+            </div>
+            <div className="learn-outcome">
+              {score && (
+                <div className="learn-score">
+                  <strong>{scoreText(score)}</strong>
+                  <dl>
+                    <div><dt>黑方</dt><dd>{grid.filter((c) => c === BLACK).length} 颗活子 + {score.blackTerritory.length} 个空点 = {score.blackArea}</dd></div>
+                    <div><dt>白方</dt><dd>{grid.filter((c) => c === WHITE).length} 颗活子 + {score.whiteTerritory.length} 个空点 + {score.komi} 贴目 = {score.whiteArea + score.komi}</dd></div>
+                  </dl>
+                  <p>数子时，各方算自己的活子与围住的空点。黑棋先下，所以星弈默认给白方加 {score.komi} 目。双方共有的空点不拉开差距，示范盘把它们留白。已经提走的棋子不再加分。</p>
+                  <p>{engineReady ? '六课学完了。和 KataGo 下第一盘 9 路棋，赛后挑一手来练。' : '六课学完了。准备好 KataGo，就能下第一盘 9 路棋并练习复盘。'}</p>
+                  <a className="hint" href="https://wqwh.weiqi.org.cn/rules/" target="_blank" rel="noreferrer">中国围棋协会 · 围棋规则</a>
+                </div>
               )}
-              {josekiDone && <div className="hint">可以点「重来」再走一遍，或者换一条定式。</div>}
-              <div className="controls" style={{ marginTop: 8 }}>
-                <button className="btn" onClick={restartJoseki} disabled={josekiMoves.length === 0}>
-                  重来
-                </button>
+              <div className="learn-actions">
+                <button className="btn" onClick={() => goTo(index)}>重练本课</button>
+                {!state.complete && (lesson.id === 'liberties' || lesson.id === 'capture') && (
+                  <button className="btn" aria-pressed={showHint} onClick={() => setShowHint(!showHint)}>
+                    {showHint ? '收起提示' : '显示提示'}
+                  </button>
+                )}
+                {needsPass && <button className="btn btn-primary" onClick={() => setState(passLesson(state))}>{game.toPlay === 'B' ? '黑方' : '白方'}停一手</button>}
+                {needsDead && <button className="btn btn-primary" disabled={!state.selected.length} onClick={() => setState(scoreLesson(state))}>确认数子</button>}
+                {!scoring && <button className="btn btn-primary" disabled={!state.complete} onClick={() => goTo(index + 1)}>下一课</button>}
+                {final && state.complete && (
+                  <button className="btn btn-primary" onClick={engineReady ? onPlay : onEngineSettings}>
+                    {engineReady ? '和 KataGo 下第一盘' : '前往设置 · 安装 KataGo'}
+                  </button>
+                )}
               </div>
             </div>
-          )}
-        </section>
-      </aside>
-    </div>
+          </section>
+        </div>
+      </div>
+    </main>
   );
 }

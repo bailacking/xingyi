@@ -90,7 +90,7 @@ const CN_FORMAL = ['零', '壹', '贰', '叁', '肆', '伍', '陆', '柒', '捌'
 /** 印章内的大写：6 → 陆级（一寸见方的印，用大写才像印）。 */
 export function levelCnFormal(level: number): string {
   const n = Math.max(1, Math.floor(level));
-  if (n <= 10) return `${CN_FORMAL[n]}级`;
+  if (n <= 10) return n === 10 ? '拾级' : `${CN_FORMAL[n]}级`;
   if (n < 20) return `拾${CN_FORMAL[n % 10]}级`;
   return `${CN_FORMAL[Math.floor(n / 10)]}拾${n % 10 ? CN_FORMAL[n % 10] : ''}级`;
 }

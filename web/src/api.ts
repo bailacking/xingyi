@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import type { EngineInstallStatus, SavedMistake, TeachingAttempt, TeachingReviewStatus } from '@xingyi/shared';
 import type {
   AnalysisResult,
   AppConfigLike,
@@ -60,6 +61,7 @@ export interface GameResponse {
   settlement: Settlement | null;
   opponent?: 'katago' | 'offline' | 'human';
   isPlacement?: boolean;
+  placementStage?: number | null;
   examLevel?: number | null;
   variations?: number;
   warnings?: string[];
@@ -67,8 +69,27 @@ export interface GameResponse {
 
 export type AnalyzeResponse = { available: true; result: AnalysisResult } | { available: false; reason: string };
 
+export interface SaveList {
+  activeId: string | null;
+  locked: boolean;
+  saves: { id: string; name: string; gamesTotal: number; level: number | null; updatedAt: string | null; readable: boolean }[];
+}
+
 export const api = {
   bootstrap: () => req<Bootstrap>('/api/bootstrap'),
+  engineInstallStatus: () => req<EngineInstallStatus & { supported: boolean }>('/api/engine/install'),
+  installEngine: () => req<EngineInstallStatus & { supported: boolean }>('/api/engine/install', { method: 'POST' }),
+  listMistakes: () => req<SavedMistake[]>('/api/mistakes'),
+  saveMistake: (gameId: string, source?: 'katago') => req<SavedMistake>(`/api/mistakes/${encodeURIComponent(gameId)}`, {
+    method: 'PUT', body: source ? JSON.stringify({ source }) : undefined,
+  }),
+  practiceMistake: (gameId: string, vertex: number) =>
+    req<SavedMistake>(`/api/mistakes/${encodeURIComponent(gameId)}/practice`, { method: 'PUT', body: JSON.stringify({ vertex }) }),
+  tryMistake: (gameId: string, vertex: number) => req<{ attempt: TeachingAttempt; updated: SavedMistake | null }>(
+    `/api/mistakes/${encodeURIComponent(gameId)}/practice`, { method: 'POST', body: JSON.stringify({ vertex }) },
+  ),
+  removeMistake: (gameId: string) => req<null>(`/api/mistakes/${encodeURIComponent(gameId)}`, { method: 'DELETE' }),
+  lanAvailable: () => req<{ available: boolean }>('/api/lan').then((res) => res.available),
   saveConfig: (patch: unknown) => req<{ config: AppConfigLike }>('/api/config', { method: 'PUT', body: JSON.stringify(patch) }),
   probe: () => req<HardwareReport>('/api/engine/probe', { method: 'POST' }),
   check: () =>
@@ -87,8 +108,10 @@ export const api = {
     level?: number;
     playerColor?: 'B' | 'W';
     examLevel?: number | null;
+    saveId?: string | null;
     handicap?: number;
     timeControl?: { mainSec: number; byoYomiSec: number; periods: number } | null;
+    fromLesson?: boolean;
   }) => req<GameResponse>('/api/game', { method: 'POST', body: JSON.stringify(opts) }),
   getGame: (id: string) => req<GameResponse>(`/api/game/${id}`),
   move: (id: string, vertex: number) =>
@@ -117,6 +140,10 @@ export const api = {
     req<{ available: true; result: ReviewResult } | { available: false; reason: string }>(`/api/game/${id}/review`, {
       method: 'POST',
     }),
+  teachingReview: (id: string, start = false) => req<TeachingReviewStatus>(`/api/game/${id}/teaching-review`, start ? { method: 'POST' } : undefined),
+  tryTeachingMove: (id: string, vertex: number) => req<{ attempt: TeachingAttempt }>(
+    `/api/game/${encodeURIComponent(id)}/teaching-review/try`, { method: 'POST', body: JSON.stringify({ vertex }) },
+  ),
   /** 中断复盘（已算出的部分保留） */
   reviewCancel: (id: string) =>
     req<{ cancelled: boolean }>(`/api/game/${id}/review/cancel`, { method: 'POST' }),
@@ -163,7 +190,7 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(p),
     }),
-  netInfo: () => req<{ addresses: string[] }>('/api/net'),
+  netInfo: () => req<{ addresses: string[]; port: number | null }>('/api/net'),
   roomDiscover: () =>
     req<{ rooms: { code: string; size: number; host: string; port: number; status?: string }[] }>(
       '/api/room/discover',
@@ -174,6 +201,11 @@ export const api = {
     req<GameResponse>('/api/sgf/import', { method: 'POST', body: JSON.stringify({ text }) }),
   sgfUrl: (id: string) => `/api/game/${id}/sgf`,
   progress: () => req<ProgressView>('/api/progress'),
+  saves: () => req<SaveList>('/api/saves'),
+  createSave: (name: string) => req<SaveList>('/api/saves', { method: 'POST', body: JSON.stringify({ name }) }),
+  activateSave: (id: string) => req<SaveList>(`/api/saves/${encodeURIComponent(id)}/activate`, { method: 'POST' }),
+  deleteSave: (id: string) => req<SaveList>(`/api/saves/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  saveExportUrl: (id: string) => `/api/saves/${encodeURIComponent(id)}/export`,
   simulateRanked: (pattern: 'win' | 'alternate' | 'lose', games = 10, startLevel?: number) =>
     req<{
       start: { level: number; R: number; RD: number };
@@ -219,19 +251,21 @@ export interface SocketEvent {
 }
 
 /** 单例 WS 订阅：断线自动重连（本地服务重启时前端不用刷新）。 */
-export function useSocket(onEvent: (e: SocketEvent) => void): { connected: boolean } {
+export function useSocket(onEvent: (e: SocketEvent) => void, roomCode?: string): { connected: boolean } {
   const [connected, setConnected] = useState(false);
   const handler = useRef(onEvent);
   handler.current = onEvent;
 
   useEffect(() => {
+    setConnected(false);
+    if (!roomCode) return;
     let ws: WebSocket | null = null;
     let timer: number | undefined;
     let closed = false;
 
     const connect = (): void => {
       const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-      ws = new WebSocket(`${proto}://${location.host}/ws`);
+      ws = new WebSocket(`${proto}://${location.host}/ws/rooms?room=${encodeURIComponent(roomCode)}`);
       ws.onopen = () => setConnected(true);
       ws.onclose = () => {
         setConnected(false);
@@ -252,7 +286,7 @@ export function useSocket(onEvent: (e: SocketEvent) => void): { connected: boole
       if (timer) window.clearTimeout(timer);
       ws?.close();
     };
-  }, []);
+  }, [roomCode]);
 
   return { connected };
 }

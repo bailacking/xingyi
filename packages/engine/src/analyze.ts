@@ -29,7 +29,7 @@ export interface ParsedAnalyzeLine {
   candidates: AnalysisCandidate[];
   /** 根的访问数（rootInfo 段） */
   rootVisits?: number;
-  /** 逐点归属，[-1,1]，视角 = 行棋方 */
+  /** 逐点归属，[-1,1]，星弈启动时固定黑方视角 */
   ownership?: number[];
 }
 
@@ -123,11 +123,6 @@ export function parseAnalyzeLine(line: string, size: number): ParsedAnalyzeLine 
 }
 
 /** ownership 是"行棋方视角"，转成黑正白负，供形势图使用。 */
-export function ownershipToBlack(ownership: number[] | undefined, turn: Color): number[] | null {
-  if (!ownership || ownership.length === 0) return null;
-  return turn === 'B' ? ownership : ownership.map((v) => -v);
-}
-
 export interface AnalyzeAccumulator {
   size: number;
   turn: Color;
@@ -144,7 +139,7 @@ export function feedLine(acc: AnalyzeAccumulator, line: string): void {
   if (!line) return;
   const parsed = parseAnalyzeLine(line, acc.size);
   if (parsed.ownership && parsed.ownership.length === acc.size * acc.size) {
-    acc.ownership = ownershipToBlack(parsed.ownership, acc.turn);
+    acc.ownership = parsed.ownership;
   }
   if (parsed.rootVisits) acc.rootVisits = parsed.rootVisits;
   for (const cand of parsed.candidates) {

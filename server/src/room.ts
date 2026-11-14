@@ -1,3 +1,4 @@
+import { randomInt } from 'node:crypto';
 import { Game } from '@xingyi/rules';
 import {
   PASS,
@@ -85,16 +86,17 @@ export class Room {
   seat(clientId: string, name: string): Color | 'spectator' {
     if (this.black?.clientId === clientId) return 'B';
     if (this.white?.clientId === clientId) return 'W';
-    if (!this.black) {
+    if (!this.black && this.status !== 'finished') {
       this.black = { clientId, name };
       this.syncStatus();
       return 'B';
     }
-    if (!this.white) {
+    if (!this.white && this.status !== 'finished') {
       this.white = { clientId, name };
       this.syncStatus();
       return 'W';
     }
+    if (!this.spectators.has(clientId) && this.spectators.size >= 32) throw new RoomError(429, '观战席已满');
     this.spectators.set(clientId, name);
     return 'spectator';
   }
@@ -267,6 +269,7 @@ export class Room {
   }
 
   say(clientId: string, text: string): void {
+    if (!this.colorOf(clientId)) throw new RoomError(403, '请先加入房间');
     const clean = text.trim().slice(0, 200);
     if (!clean) return;
     this.chatSeq += 1;
@@ -275,9 +278,14 @@ export class Room {
   }
 
   leave(clientId: string): void {
+    const color = this.colorOf(clientId);
+    if (!color) throw new RoomError(403, '请先加入房间');
+    if (color === 'spectator') {
+      this.spectators.delete(clientId);
+      return;
+    }
     if (this.black?.clientId === clientId) this.black = null;
     if (this.white?.clientId === clientId) this.white = null;
-    this.spectators.delete(clientId);
     if (this.status === 'playing') {
       this.status = 'finished';
       this.resultReason = 'quit';
@@ -310,7 +318,7 @@ const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 export function makeRoomCode(existing: Set<string>): string {
   for (let attempt = 0; attempt < 50; attempt++) {
     let code = '';
-    for (let i = 0; i < 6; i++) code += ALPHABET[Math.floor(Math.random() * ALPHABET.length)];
+    for (let i = 0; i < 6; i++) code += ALPHABET[randomInt(ALPHABET.length)];
     if (!existing.has(code)) return code;
   }
   throw new RoomError(500, '房间码撞车了，再试一次');

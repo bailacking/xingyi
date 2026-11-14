@@ -3,7 +3,7 @@
 > **读者**：接手这个仓库的 AI 编程助手（以及偶尔看它的人）。
 > **权威顺序**：本文件 > 代码 > `docs/` > `docs/archive/PLAN-v2.5.md`（历史设计稿，已弃用，只作考古）。
 > **维护义务**：改动涉及状态、参数、契约、坑位时，**同一个 commit 里更新本文件**。本文件过期比没有更糟。
-> **最后核对**：2026-11-12 22:05 · 164 项测试通过 · 题库（100 道提子题 + 生成器 + 测级/跟做）已整体移除（见 §2 教学说明）。
+> **最后核对**：2026-11-14 · 169 项测试通过 · 教学复盘可分析玩家试下并对照三条变化。
 
 ---
 
@@ -11,27 +11,29 @@
 
 1. 读 §2「当前状态」——确认你要做的事**是否已经做了**。设计稿里有的东西，代码里可能没有；反之也有偏差。
 2. 读 §6「不变量」与 §15「已踩过的坑」——这些是代价换来的，别重犯。
-3. 改完必须跑通：`npm test`（164 项）+ `npm run typecheck`。
+3. 改完必须跑通：`npm test` + `npm run typecheck`。
 4. 能跑 ≠ 对。涉及界面的改动，用 §16.4 的无头浏览器截图目检；涉及引擎的，用真 katago 跑一次（本机已装，见 §9.1）。
 
 ---
 
 ## 1. 项目定位
 
-**一句话**：在本机跑 KataGo 的围棋软件，以「练」为主线——修习（升级）、自在（自由）、手谈（联机）三套规则世界，外加摆棋分析、定式练习、可深度换主题。
+**一句话**：在本机跑 KataGo 的围棋软件，以「练」为主线——修习（升级）、自在（自由）、手谈（联机）三套规则世界，外加摆棋分析、规则入门、可深度换主题。
 
 **性质**：开源个人项目（MIT）+ 简历作品。
+
+**教学开发基线**：KataGo 已安装且可运行。深度复盘、进阶教学与难度校准以此为主路径。基础规则、手谈及试玩保留无引擎体验。
 
 **两条硬约束（贯穿所有决策）**
 
 | # | 约束 | 具体含义 |
 |---|---|---|
 | H1 | 零版权风险 | 素材/棋谱/音效必须能证明来源与授权；只用 CC0 / 公有领域 / 自建 |
-| H2 | 别人必须能跑起来 | 不假设下载者有 NVIDIA 卡；引擎与权重用户自装，程序做环境自检 + 中文引导 |
+| H2 | 别人必须能跑起来 | Windows x64 提供 KataGo 一键安装、显卡后端回退及实际落子验证；手动配置可用 |
 
 **非目标**：不做在线对弈平台（不接 OGS/KGS/野狐）· 不做通用 SGF 编辑器 · 不做手机原生 App · 不做模型训练/自对弈 · 不做日本规则。
 
-**术语**：等级一律叫「级」（1~15），不叫「段」不叫「档」。界面正文用中文数字（六级），印章用大写（陆级）。
+**术语**：等级一律叫「级」（25 级最低，1 级最高），不叫「段」不叫「档」。界面正文用中文数字（六级），印章用大写（陆级）。
 
 ---
 
@@ -42,16 +44,16 @@
 | 模块 | 状态 | 已实现 | 未实现 |
 |---|---|---|---|
 | **自在**（free） | 可玩 | 9/13/19 路对局；AI 或离线对手；悔棋、停一手、认输、终局数子；SGF 导入/导出；分析面板（候选点 + 胜率 + 目差）；形势图（F）；候选变化幽灵子；点一颗子整块标死；**复盘（分块进度条 + 可随时中断 + 黑白方分色统计，19 路 200 手 ≈ 43 秒）** | 自由摆子编辑（AB/AW/AE 拖拽摆放）；目差曲线；沿分支逐手跳转；"假设对手水平"滑杆 |
-| **修习**（ranked） | 可玩（等级表已实测） | 3 盘定级；暂定级；升降级（阈值按局部步长）；**跳档考核（升 1/2 级）**；防刷；`progress.json` + `.bak`；评级沙盘；**进度导出 JSON** | 逐级独立校准误差仍 ±150~480 |
+| **修习**（ranked） | 25 级可玩，曲线暂定 | 最多五盘定级，19 路分先且黑白轮换；自动裁定死子；升降级、跳档考核、准备页、独立存档、旧档迁移、评级沙盘与导出 | 相对强度完整校准及职业初段真人验证 |
 | **手谈**（lan） | 初版可用 | 房间码 6 位、创建/加入、观战、**状态走 WS 推送（聊天同帧）**、悔棋需同意、认输、**房间棋钟（主时间 + 读秒，可选 4 档时间制）、超时判负**、**让子 2~9 子（黑子开局摆好、白先走、贴 0.5）、房主在等人阶段可改时间制与让子**、UDP 局域网自动发现、**扫码入座二维码**、**重开页面自动回座**、WS 断开时 6s 兜底轮询 + **断线提示条**、**观战者看到自己的角色与两台钟** | 开局后不能改设置（需重开房）；让子只在建房/等人阶段定 |
-| 教学 / 定式 | 初版可用 | **6 个定式跟做（W1，每步都用规则引擎验过合法）**；教学页**只剩这一个 tab** | 题库整体待重做（旧的 100 道一步打吃题已删，见下）；AI 辅助判题 |
+| 教学 | 可用 | **6 课零基础围棋入门**；结课进入 KataGo 9 路练习棋。人机分先结算页可用 KataGo 选一手重下，对照实战与推荐变化并收录错题 | 定式 |
 | **主题** | 四套内置 + 可导入 | `suxue` 素雪（默认浅色）/ `xuanmo` 玄墨（默认深色）/ `qingzhu` 青竹 / `yinxing` 银杏；即时切换 + 5 秒撤销；预览卡片；**zip 导入导出（只收 `theme.json` + 图片，禁 CSS/JS）**；token 白名单逐项校验 | 主题包 `assets/` 图片能存能取，但界面还没消费（棋盘贴图/装饰层）；`style.css` 白名单**已永久放弃**（见 §12） |
 | Electron | 未开始 | — | 换壳、窗口、图标、启动画面 |
-| 引擎 | 已接入真机 | GTP 串行客户端、分析流、三后端探测、五步自检、进程守护、离线对手 | 摆棋用的 `playoutDoublingAdvantage` 滑杆 |
+| 引擎 | 已接入真机 | GTP、分析流、自检、Windows x64 一键安装；自动下载和校验两模型，尝试 CUDA、DirectML、OpenCL 或 Eigen | 非 Windows 的自动安装 |
 
-**测试规模**：164 项 / 10 个文件（rules 30 · server API 22 · room 计时与设置 15 · clock 10 · engine 14 · rating 25 · sgf 7 · joseki 14 · review 分块 4 · **主题包 23**）。
+**测试规模**：169 项 / 13 个文件（含入门课、局部规则题、KataGo 教学复盘与错题接口测试）。
 
-> **2026-11-12 删掉的东西（别再凭记忆写回来）**：题库 `data/tsumego/`、生成器 `scripts/gen-tsumego.mjs`、`server/test/tsumego-data.test.ts`、`/api/tsumego*` 三条路由、`gameService` 的 `loadTsumego/listTsumego/getTsumego/tryTsumego` 与 `TsumegoProblem` 接口、`web/src/api.ts` 的 `tsumego*`、LearnView 的「跟做 / 题库 / 测级」三个 tab。理由：100 道全是一步打吃题，没有教学价值。教学页现在只有一个 tab（定式）。
+> **2026-11-12 删掉的东西（别再凭记忆写回来）**：题库 `data/tsumego/`、生成器 `scripts/gen-tsumego.mjs`、`server/test/tsumego-data.test.ts`、`/api/tsumego*` 三条路由、`gameService` 的 `loadTsumego/listTsumego/getTsumego/tryTsumego` 与 `TsumegoProblem` 接口、`web/src/api.ts` 的 `tsumego*`、LearnView 的「跟做 / 题库 / 测级」三个 tab。理由：100 道全是一步打吃题，没有教学价值。2026-11-13 移除旧六条定式、数据、接口和测试，由零基础围棋课程接替。
 
 **本机引擎现状**（`data/config.json`，不入库）：KataGo 1.18.2 CUDA + 主模型 + human 模型，显存占用 985 MB / 4096 MB。换机器时这份配置不存在 → 引擎状态为 `unconfigured`，自在模式自动退化为离线对手，修习模式返回 409。
 
@@ -105,7 +107,7 @@ packages/
   engine/src/gtp.ts         GTP 行协议（串行队列、id、分析流 sink）
   engine/src/analyze.ts     kata-analyze 行解析（一行多段 + ownership）
   engine/src/manager.ts     引擎生命周期、等级参数、节流分析、守护
-  engine/src/params.ts      15 级 → humanSLProfile / maxVisits
+  engine/src/params.ts      25 级 → humanSLProfile / maxVisits
   engine/src/backend.ts     硬件探测与后端推荐
   engine/src/offline.ts     离线对手（启发式，带固定种子）
 server/src/
@@ -114,7 +116,6 @@ server/src/
   gameService.ts            对局/结算/分析/进度/沙盘（业务中枢）
   match.ts                  一局 = rules.Game + 模式元信息 + AI 回合
   sgf.ts                    SGF 树解析 / 导出（AB/AW/PL/KM）
-  joseki.ts                 定式数据加载 + 判一手（W1）
   config.ts                 config.json 结构与深合并
   paths.ts                  数据目录定位
   themePack.ts              主题包：自写 zip 读写 + token 白名单 + data/themes 存取
@@ -123,7 +124,10 @@ web/src/
   board/Board.tsx           SVG 棋盘（几何、坐标、虚影、形势图、死子叉）
   modes/GameView.tsx        对局界面（三模式共用，靠 CAPS 分叉）
   modes/Menu.tsx            主界面
-  modes/LearnView.tsx       教学：定式跟做（唯一的 tab）
+  modes/LearnView.tsx       教学：围棋入门课程界面
+  modes/rulesCourse.ts      原创示范局面、练习流程与反馈
+  modes/FirstGameReviewView.tsx  首盘重试与实战两手回放
+  modes/MistakeNotebookView.tsx  我的错题：重练、练对日期、移除
   panels/AnalysisPanel.tsx  候选点列表 + 胜率/目差 + 深入
   panels/MoveList.tsx       手数列表
   Settings.tsx              引擎三步向导 + 界面/音效/沙盘 + 主题面板（导入导出）
@@ -161,7 +165,7 @@ docs/                       引擎安装 / 评级说明 / 主题规范 / 测试�
 2. 玩家落子 → `gameService.humanMove` → `rules.Game.play`；成功后 `Match.maybeRunAi()`。
 3. AI 回合：`engine.genmove(level)`（human 档位走 human SL，主模型档位限 visits）→ 落子 → `emit('game')`。
 4. 结算：双方停手 → `status='scoring'` → 玩家点死子（整块）→ `finishScored` 数子 → `ranked` 模式写 `progress.json`。
-5. 分析：`POST /api/game/:id/analyze` 固定在 **13 级（主模型 800 visits）** 跑，**不能用 human SL**——它评估的是"人类会怎么下"，不是"这盘谁好"。
+5. 分析：`POST /api/game/:id/analyze` 使用 **1 级的主模型** 与分析档位访问量，**不能用 human SL**——它评估的是"人类会怎么下"，不是"这盘谁好"。
 
 **进程/并发**：单 katago 进程，请求串行队列；分析是异步流，新命令会打断旧流；AI 思考期间 `snapshot.aiThinking=true`，前端锁棋盘。
 
@@ -176,7 +180,7 @@ docs/                       引擎安装 / 评级说明 / 主题规范 / 测试�
 | I3 | 前后端类型只从 `@xingyi/shared` 出 | `web/src/types.ts` 只做 re-export，不加新类型 |
 | I4 | 规则判定以**真落一手**为准 | 禁止手写"聪明"的合法性捷径（自杀误判就是这么做出来的） |
 | I5 | 只做中国规则 | 数子、贴 7.5、让子不还子；不做日韩规则 |
-| I6 | 等级上限读配置（`config.game.maxLevel`） | 不硬编码 15 |
+| I6 | 修习统一 25 级，数值越小越强 | 用共享级数常量；旧配置的 15 会被规范化 |
 | I7 | 面向用户的错误必须是中文 + 下一步 | 不出现 `engine init failed` |
 | I8 | 主题包禁止 JS、禁止远程 URL | 见 §12 |
 | I9 | `data/*` 里引擎与模型永不入库 | 版权 + 体积 |
@@ -188,7 +192,7 @@ docs/                       引擎安装 / 评级说明 / 主题规范 / 测试�
 | showWinrate / showComment | ✗ | ✓ | ✓ |
 | allowUndo | ✗ | ✓ | ✓（需对方同意，未实现） |
 | allowAnalysis / allowImport | ✗ | ✓ | ✗ |
-| rankLocked / allowLevelSelect | 锁定当前级 | 自选 1~15 | — |
+| rankLocked / allowLevelSelect | 锁定当前级 | 自选 1~25 | — |
 | countsToProgress / quitLoses | ✓ / ✓ | ✗ / ✗ | ✗ / ✓ |
 | allowBoardEdit | ✗ | ✓（字段已置 true，UI 未做） | ✗ |
 | hasAi | ✓ | ✓ | ✗ |
@@ -239,28 +243,16 @@ K = baseK + RD / rdScale      （RD 大 → K 大 → 新号收敛快）
 | 同级刷分 | 超过 8 盘后 K × 0.5 | `repeatThreshold` / `repeatPenaltyK` |
 | 速胜 | < 40 手按 S = 0.5 | `fastWinMoves` |
 | 目差修正 | 0.8 ~ 1.2 | `diffKMin` / `diffKSpan` |
-| 锚点 | 8 级 = 1525 | `data/ranks.json.anchor` |
-| 每级步长 | **实测 100 分**（原设计 75，已作废） | `data/ranks.json.measuredStep` |
+| 锚点 | 十三级 = 1525 | `data/ranks.json` |
+| 每级步长 | 暂定 75 分，强一档约 61% 期望胜率 | 拟合前的目标间距 |
 
-**升降级阈值**（`progress.evaluateLevel`）
+**升降级**：升级比较 `A[k-1]`，降级比较 `A[k+1]`。相邻分差按 35% 与 50% 放宽阈值，另有本级盘数、连胜、保级与退级缓冲。跳档考核只允许高一或两级，失利不降级并冷却三盘。
 
-| 动作 | 条件 |
-|---|---|
-| 升级 | `R ≥ A_{k+1} − 50` 且本级 ≥ 3 盘 且（连胜 ≥ 2 或本级胜率 ≥ 60%） |
-| 跳档考核 | 连胜 ≥ 3 且够分且不在冷却 → 结算页「可进一级」，赢则升 1~2 级 |
-| 降级 | 保级期 0 且退级缓冲 0 且 `R < A_{k−1} − 100` 且连败 ≥ 2 |
-| 保级期 | 升入新级后 3 盘内不降 |
-| 退级缓冲 | 降级后 5 盘内不连降 |
+**定级赛**：首局十三级，胜负决定二分方向，最多五盘。二十五级新手起点；一级是职业初段校准目标。修习固定 19 路、7.5 目、不限时、分先、交替执黑白。只保留一盘进行中的修习，重复开局会续局。双方停手后只用引擎裁定死子，参数设置失败的棋局不计分。终局后才开放复盘和 SGF 导出。修习入口先显示准备页，只读战绩和难度，确认开局才发创建对局请求。已有对局可继续。
 
-**定级赛**：第 1 盘 8 级 → 第 2 盘赢打 12 级 / 输打 4 级 → 第 3 盘按前两盘插值。前 10 盘标「暂定 X 级」，K 翻倍。
+**存档**：schema v2。旧编号与原定级结果保存在历史字段，首次保存新进度前保留 `progress.json.v1.bak`。已定级按原对手配置映射，旧定级未完成的进新定级。已知胜负由旧定级结果和历史补齐，截断历史中缺失的局数标为未知。新增胜负独立累计。
 
-**存档**：`progress.json`（当前级、R、RD、暂定标记、历史、连胜、保级/冷却计数、`schemaVersion`）。每次写盘前留 `.bak`；读坏时回退 `.bak` 再回退默认值。
-
-**校准现状（2026-10-18 定表）**：9 路 · 成对开局 · 每组 20 盘（两端 30 盘）· 共 **300 局**。
-线性阶梯 **step = 90 分/级，95% 区间 [50, 131]**；14 个相邻组全部落在模型 ±8 个百分点内，没有显著反向的组。
-`data/ranks.json` 的 A_k = 1525 + 90×(k−8)，全部 15 级 `calibrated: true`（每级 `ci95` 标的是逐级真实误差，±150~480）。
-**别把 per-level 的 ci95 当成"没校准"**——数据量只够定斜率；要每级 ±25 得每组 ~800 盘（约 20 小时）。
-细节与不完美之处见 `docs/评级说明.md` §八。
+**校准**：换色开局、分开拟合与留出验证、引擎和参数指纹。试跑证据、完整验收及真人锚点见 [评级说明](docs/评级说明.md)。
 
 ---
 
@@ -287,27 +279,12 @@ K = baseK + RD / rdScale      （RD 大 → K 大 → 新号收敛快）
 | AI 应手 | < 1.2 s（8 级） |
 | 分析 | **约 350 ms** 出 6 候选 + 361 点 ownership |
 
-### 9.3 等级 → 引擎参数（`packages/engine/src/params.ts`）
+### 9.3 等级 → 引擎参数
 
-| 级 | 机制 | profile / maxVisits |
-|---|---|---|
-| 1–2 | human SL | `rank_20k` / `rank_18k`，1 / 2 |
-| 3–4 | human SL | `rank_16k` / `rank_14k`，4 / 8 |
-| 5–6 | human SL | `rank_12k` / `rank_10k`，16 / 32 |
-| 7–8 | human SL | `rank_8k` / `rank_6k`，64 / 100 |
-| 9 | human SL | `rank_4k`，160 |
-| 10–15 | 主模型 | 5 / 10 / 20 / 40 / 80 / 160 visits |
-
-**为什么 10 级起就切主模型**（2026-10-18 实测）：human SL 到 `rank_1k` 后继续加访问量基本不再变强（240 与 320 visits 打平），
-而主模型 **5 visits 就比 `rank_1k`+320 高约 140 分**。所以人类风格只保留到 9 级，10~15 用主模型低访问量做连续刻度。
-
-**human SL 的可控性前提**：`humanSLChosenMoveProp=1` + `lambda`（PIKL 抑制）+ `rootExplore` 三者必须一起设。
-- `lambda` 大（1e8）= 纯模仿，**搜索被忽略、`maxVisits` 对选点无效**（官方 `gtp_human5k_example.cfg` 明说）
-- `lambda` 小（0.08~0.5）+ `rootExplore 0.8` = 搜索参与，`maxVisits` 才真的能调强度
-- 当前 1~9 级固定 `lambda=0.5`、`rootExplore=0.8`
-
-> 12 级以上用主模型还有另一个原因：官方警告 human SL 在高段不保证真实强度。
-> 同级 AI 强度固定（只随机开局），保证"你的进步"可比较。
+- 25→9 级用 Human SL `rank_20k` 到 `rank_4k`，1–160 visits；8 级用 `rank_1k`、160 visits。
+- 7→1 级用主模型，依次 5 / 10 / 20 / 40 / 80 / 112 / 160 visits。
+- 修习必须加载双模型，参数失败时不得使用兼容档代替。自在缺人类模型时，选 8–25 级会使用内置离线对手。
+- 预设是暂定曲线，Human SL 标签用于控制棋风。顶档的职业初段目标要用真人对局校准。
 
 ### 9.4 GTP 协议要点（全部实测，不是文档推测）
 
@@ -323,7 +300,7 @@ K = baseK + RD / rdScale      （RD 大 → K 大 → 新号收敛快）
 
 ### 9.5 human SL 的致命开关
 
-只设 `humanSLProfile` **等于没设**——`humanSLChosenMoveProp` 默认是 `0`，意思是"不从人类模型选点"，1~11 级会一直用主模型下棋。必须一起设：
+只设 `humanSLProfile` **等于没设**——`humanSLChosenMoveProp` 默认是 `0`，意思是"不从人类模型选点"，8~25 级会一直用主模型下棋。必须一起设：
 
 ```text
 kata-set-params {"humanSLProfile":"rank_8k","humanSLChosenMoveProp":1.0,
@@ -335,13 +312,8 @@ kata-set-params {"humanSLProfile":"rank_8k","humanSLChosenMoveProp":1.0,
 
 ### 9.6 校准脚本
 
-```bash
-node scripts/calibrate.mjs --games 8 --size 9 --pairs 1-12   # 相邻级互下
-node scripts/fit-ranks.mjs data/calibration/<stamp>.jsonl    # 保序回归 + 置信区间
-```
-
-- 结果写 `data/calibration/*.jsonl`（不入库）；`data/ranks.json` 只覆盖本次测过的级，**未测级沿用旧值**（第一版曾把整张表冲成常量）。
-- 符号约定：`delta = R_lo − R_hi`，高一级 = 低一级 − delta。
+`scripts/calibrate.mjs` 默认跑 19 路。相邻组用 `--pairs 7-9`，隔级对测用 `--pairs 7:9`。不同批次用 `--opening-offset` 分配不重叠的开局。
+`scripts/fit-ranks.mjs` 给出允许倒挂的 Bradley–Terry 诊断。写入须使用当前参数的 19 路数据、独立留出集，并达到每组样本和胜率门槛。完整命令见 [评级说明](docs/评级说明.md)。
 
 ### 9.7 离线对手（`offline.ts`）
 
@@ -387,7 +359,7 @@ node scripts/fit-ranks.mjs data/calibration/<stamp>.jsonl    # 保序回归 + �
 
 ## 10. HTTP API
 
-全部 `/api`，请求/响应 JSON；错误统一 `{ error: string }`（中文）。
+全部 `/api`，请求/响应 JSON，错误统一 `{ error: string }`。引擎、配置、个人对局和进度仅限回环地址与回环 Host，跨站访问被拒绝。手谈访客访问同网段的房间路由、`/api/lan` 和 `/api/net`。详见 [联机协议](docs/联机协议.md)。
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
@@ -399,6 +371,11 @@ node scripts/fit-ranks.mjs data/calibration/<stamp>.jsonl    # 保序回归 + �
 | POST | `/api/engine/restart` | 重启引擎 |
 | POST | `/api/game` | 开局：`{mode, size?, level?, playerColor?, komi?}` |
 | GET | `/api/matches` | 最近对局列表 |
+| GET | `/api/mistakes` | 本机教学错题 |
+| GET / POST | `/api/engine/install` | 本机读取安装进度 / 开始 Windows x64 一键安装 |
+| PUT / DELETE | `/api/mistakes/:gameId` | 从已结束的 9 路人机对局生成错题 / 移除该题 |
+| PUT | `/api/mistakes/:gameId/practice` | 以 `{ vertex }` 提交重练落点，验证通过后更新练对时间 |
+| POST | `/api/mistakes/:gameId/practice` | 评估 KataGo 错题中的试下；达到练习目标则更新练对时间 |
 | GET | `/api/game/:id` | 对局快照 |
 | POST | `/api/game/:id/move` | `{vertex}` |
 | POST | `/api/game/:id/pass` | 停一手（无 body） |
@@ -406,21 +383,27 @@ node scripts/fit-ranks.mjs data/calibration/<stamp>.jsonl    # 保序回归 + �
 | POST | `/api/game/:id/end` | 双方停手 → scoring；**ranked 拒绝**（防止挑时机收官） |
 | POST | `/api/game/:id/resign` | 认输 |
 | POST | `/api/game/:id/quit` | 中途退出（ranked 算负） |
-| POST | `/api/game/:id/score` | `{dead: number[]}` 预览数子 |
-| POST | `/api/game/:id/finish` | `{dead}` 确认结算（ranked 写进度） |
+| POST | `/api/game/:id/score` | 自在传 `{dead: number[]}` 预览数子 |
+| POST | `/api/game/:id/finish` | 自在传 `{dead}`；修习由 KataGo 裁定死子并写进度 |
 | POST | `/api/game/:id/redo` | 重做被悔掉的下一手 |
 | POST | `/api/game` | 可选 `handicap`（2~9）、`timeControl`（`null` = 不限时，不传 = 10 分 + 3×30 秒） |
 | POST | `/api/game/:id/review` | 逐手复盘，**分块**：每叫一次前进 12 个局面就返回 `{points, summary, progress}`，`progress.running=false` 才算完；摆子棋谱暂不支持 |
 | POST | `/api/game/:id/review/cancel` | 中断复盘（保留已算出的部分，下次轮询返回 `cancelled:true`） |
+| GET / POST | `/api/game/:id/teaching-review` | 获取进度 / 启动 KataGo 一手教学复盘，支持已结束的人机分先局 |
+| POST | `/api/game/:id/teaching-review/try` | 以 `{ vertex }` 试下，返回执色目差和规则验证后的应对 |
 | POST | `/api/game/setup` | 摆子建局：`{size, grid, toPlay, komi}`（分析走 loadsgf） |
-| GET | `/api/progress/export` | 导出 JSON（存档 + 等级表） |
+| GET | `/api/progress/export` | 导出当前档 JSON（进度 + 等级表） |
+| GET / POST | `/api/saves` | 列出存档 / 新建并启用 |
+| POST | `/api/saves/:id/activate` | 启用指定存档 |
+| DELETE | `/api/saves/:id` | 删除指定存档及其进度备份 |
+| GET | `/api/saves/:id/export` | 下载指定存档 JSON |
 | POST | `/api/room` | 开房间（6 位码，创建者执黑）；可选 `timeControl`（`null` = 不限时，不传 = 10 分 + 3×30 秒）、`handicap`（2~9） |
 | POST | `/api/room/:code/settings` | 房主改设置 `{clientId, timeControl?, handicap?}`；仅 `waiting` 阶段，否则 400 |
 | POST | `/api/room/:code/join` | 加入（第三人是观众） |
 | GET | `/api/room/:code` | 房间快照（含 `clock`、`resultReason`、`handicap`）+ 聊天 |
 | POST | `/api/room/:code/action` | move/pass/resign/undo/undo-yes/undo-no/leave |
 | POST | `/api/room/:code/chat` | 聊天（不入库） |
-| GET | `/api/room/discover` | UDP 监听 1.2s，返回同网段房间 |
+| GET | `/api/room/discover` | UDP 监听 2.4s，返回同网段房间 |
 | POST | `/api/game/:id/analyze` | `{depth?}`（quick/standard/deep = 5/6/8 候选，180~4200 ms）→ 候选 + ownership；未配置引擎返回 `available:false` + 原因 |
 | GET | `/api/game/:id/sgf` | 导出 SGF 文本 |
 | POST | `/api/sgf/import` | `{text}` → 新对局（按 `PL` 还原先后手） |
@@ -438,6 +421,16 @@ node scripts/fit-ranks.mjs data/calibration/<stamp>.jsonl    # 保序回归 + �
 ---
 
 ## 11. 前端 `web`
+
+- 棋局页：棋盘下方保留常用操作，数子区也贴在棋盘旁。自在的新局参数折叠，路数与难度在点击「开始新对局」后统一生效。侧栏用「对局 / 形势 / 手数」切换。
+- 结算显示在侧栏，点击「复盘」进入。曲线、滑杆、上一手/下一手、关键着及全部着手共享回看手数。
+- 手谈大厅先显示加入与创建，进入房间后再显示棋盘。房间邀请和聊天可折叠，棋钟、角色和悔棋反馈靠近棋盘。
+- 教学页依次练习落子、气、提子、禁着点、打劫、停手数子。完成后用 KataGo 开一盘 9 路、25 级、不限时的练习棋；双模型未就绪时转到引擎设置，回课保留结课状态。
+- KataGo 分先局结算后可点「看一手，试一次」。`server/src/teachingReview.ts` 扫描前 200 手内玩家着手，对最多四个局面重新评估，并在同一根局面约束实战和推荐首着分别搜索，按玩家颜色比较目差。推荐变化逐手过规则校验，最多展示四手。完整复盘入口独立。
+- 复盘可把实战、推荐变化及评估一起加入「我的错题」。`packages/rules/src/firstGameReview.ts` 验证重练落点并兼容旧规则题；题目保存在本机，回练落对更新「上次练对」。手动移除可用。
+- KataGo 题允许尝试任一合法落点。以原局面搜索指定首着，将预计目差和最多四手变化加入对照。与推荐着法相差不超过 0.75 目或更好时，记为达到练习目标。推荐着法复用已保存的分析。
+- 页面布局覆盖放在 `web/src/styles/screens.css`，教学单独用 `web/src/styles/learn.css`。首页沿用既有实现和样式，四套主题继续使用原 token。
+
 
 | 关注点 | 事实 |
 |---|---|
@@ -514,14 +507,20 @@ node scripts/fit-ranks.mjs data/calibration/<stamp>.jsonl    # 保序回归 + �
 | 文件 | 入库 | 内容 |
 |---|---|---|
 | `data/config.json` | ✗ | 引擎路径/后端、UI 选项、游戏默认值、玩家名；见 `server/src/config.ts` |
-| `data/ranks.json` | ✓ | 15 级校准分 + 锚点 + step/stepCi95 + 每级 sample/ci95；`calibrated` = 斜率已实测 |
-| `progress.json` | ✗ | 当前级、R/RD、暂定、历史、连胜、保级/冷却、schemaVersion；写前 `.bak` |
+| `data/ranks.json` | ✓ | 25 级暂定分、曲线版本、校准状态；留出验证通过后更新 |
+| `progress.json` | ✗ | 原有默认档，继续在原路径读写 |
+| `data/saves/index.json` | ✗ | 存档清单和当前档，原子替换；`legacy` 指原默认档 |
+| `data/saves/<id>/progress.json` | ✗ | 独立新存档及该档备份 |
+| `data/mistakes/notebook.json` | ✗ | 教学错题、收录日期和上次练对日期 |
+| `data/engine/managed/` | ✗ | 从官方发行页下载并校验的引擎、模型和生成的 GTP 配置 |
 | `progress.json.bak` | ✗ | 上一版存档（损坏时回退） |
+| `progress.json.v1.bak` | ✗ | 初次保存 v2 时保留的原始 v1 存档 |
 | `data/games/*.sgf` | ✗ | 对局棋谱（导出/复盘） |
 | `data/calibration/*.jsonl` | ✗ | 校准原始对局（每行一局） |
 | `data/themes/<id>/theme.json` | 内置 ✓ / 导入 ✗ | 四套内置主题（导出源）；导入的主题也落这里，由 `.gitignore` 白名单挡在库外 |
-| `data/joseki/` | ✓ | 定式数据（6 条，19 路角部） |
 | `backups/progress-YYYYMMDD.json` | ✗ | 每日备份，留 10 份 |
+
+修习局未完成时禁止新建、切换或删除存档，导出可用。删除当前档时切换到第一份可读档，全部删除后需要新建。SGF 保留在独立棋谱目录。
 
 `config.ui` 关键字段：`themeId` · `sound` · `soundPack` · `soundVolume` · `hoverMark` · `showOwnership` · `analysisDepth`(quick/standard/deep) · `playerColor`。
 `config.game`：`maxLevel` · `komi` · `boardSize` · `aiResign`。
@@ -532,21 +531,21 @@ node scripts/fit-ranks.mjs data/calibration/<stamp>.jsonl    # 保序回归 + �
 
 | 阶段 | 内容 | 状态 |
 |---|---|---|
-| **P0** | 引擎跑通 + 分析流 + 规则引擎 + 15 级校准 | 完成；300 局实测，step=90（CI 50~131） |
+| **P0** | 引擎跑通 + 分析流 + 规则引擎 | 完成，历史 15 级数据仅供参考 |
 | **P1** | 自在：摆棋分析 | 完成（摆子编辑/分析、曲线、跳转、假设对手）；缺变化树编辑 |
-| **P2** | 对 AI 下棋 + 复盘 | 完成（逐手好/一般/失误 + 曲线 + 跳转 + 输棋自动复盘 + 着法名 + 计时/让子） |
-| **P3** | 修习：评级全流程 | 完成（等级表实测、跳档考核、导出） |
-| **P4** | 教学（定式） | **6 个定式跟做（W1）**持续可用；题库/跟做/测级已于 2026-11-12 整体移除，重做时另立任务卡 |
+| **P2** | 对 AI 下棋 + 复盘 | 完成（逐手好/一般/失误 + 曲线 + 跳转 + 结算页可进入复盘 + 着法名 + 计时/让子） |
+| **P3** | 修习：评级全流程 | 25 级、跳档考核、导出已实现，完整校准进行中 |
+| **P4** | 教学 | 已完成六课入门教学；旧定式、题库、测级均已移除 |
 | **P5** | 手谈：局域网联机 | 房间码/加入/观战/聊天/悔棋同意/超时/自动发现/二维码/WS 推送/自动回座/**房间棋钟 + 超时判负 + 观战提示 + 让子 + 房主开前改设置**；缺开局后改设置 |
 | **P6** | 主题：四套内置 + zip 导入导出 | 完成（4 套主题、棋子高光 token 化、预览卡片、导入导出、token 白名单、恶意包拒绝）；缺 `assets/` 渲染与主题删除 |
 | **P7** | Electron 换壳 | 未开始 |
 | **P8** | 开源发布：截图/GIF、CI、THIRD-PARTY 核验 | CI 与文档已有，其余待补 |
 
 **剩余工作已按「文件边界」拆成 6 张并行任务卡，见 [`docs/并行开发计划.md`](并行开发计划.md)。**
-一个窗口只做一张卡：W1 定式练习 / W2 手谈计时 / W3 复盘深化 / W4 主题系统 / W5 19 路校准 / W6 桌面壳+发布。
-W1~W4 已完成，剩 W5（19 路校准）、W6（桌面壳 + 发布），**当前暂缓**：先集中修 BUG，问题登记在 [`docs/已知问题.md`](已知问题.md)。**别在一个窗口里连做多张**——上下文一长，token 全花在回忆上。
+一个窗口只做一张卡：W1 已退役 / W2 手谈计时 / W3 复盘深化 / W4 主题系统 / W5 19 路校准 / W6 桌面壳+发布。
+W2~W4 已完成；W5 已进入 25 级 19 路校准，W6（桌面壳 + 发布）待启动。问题登记在 [已知问题](docs/已知问题.md)。
 
-**已知未收口的小事**：`THIRD-PARTY.md` 里 Sabaki 相关条目已过期（现在零 Sabaki 依赖，棋盘与 SGF 都自研），P8 前重写；`docs/联机协议.md` 未写。
+**已知未收口的小事**：`THIRD-PARTY.md` 里 Sabaki 相关条目已过期（现在零 Sabaki 依赖，棋盘与 SGF 都自研），P8 前重写。
 
 ---
 
@@ -556,7 +555,7 @@ W1~W4 已完成，剩 W5（19 路校准）、W6（桌面壳 + 发布），**当�
 |---|---|---|
 | K1 | 假引擎写成"乖"格式 → 测试全绿、真机全废 | 假对端必须照抄真实输出（含反例：`=` 紧跟 info、一行多段） |
 | K2 | 手写自杀判定漏了"接上自己有外气的棋" | 合法性一律 `clone().place()` 看结果 |
-| K3 | 只设 `humanSLProfile` → 1~11 级其实用主模型 | 必须同时 `humanSLChosenMoveProp=1` |
+| K3 | 只设 `humanSLProfile` → 8~25 级其实用主模型 | 必须同时 `humanSLChosenMoveProp=1` |
 | K4 | `kata-analyze` 的 `=` 被当响应开头 → 零候选 | 分析模式吞掉 `=`/`?` |
 | K5 | 一行一个候选的解析假设 → 零候选 | 按段切分，一行可能 5~6 段 |
 | K6 | 无 body 的 POST 带 `content-type: application/json` → Fastify 400 | 客户端有 body 才设头；服务端空串当 `{}` |
@@ -569,6 +568,7 @@ W1~W4 已完成，剩 W5（19 路校准）、W6（桌面壳 + 发布），**当�
 | K13 | 校准脚本把未测级也写成默认值 → 整表被冲 | 只覆盖本次测过的级，其余沿用旧值 |
 | K14 | 用历史累计提子数判断"响提子音" → 后半盘每手都响 | 比较前后快照增量 |
 | K15 | 凭训练记忆写 GTP/引擎参数 | 先跑 `benchmark`、`kata-get-param` 验证，再落代码 |
+| K16 | 结算补拉回包晚于再开一局，旧终盘可能盖过新局 | 应用开局快照时同步更新当前对局引用；结算补拉写回前核对对局 ID |
 
 ---
 
@@ -632,7 +632,7 @@ W1~W4 已完成，剩 W5（19 路校准）、W6（桌面壳 + 发布），**当�
 1. 改 `packages/engine/src/params.ts`（档位）或 `packages/rating/src/glicko.ts` / `progress.ts`（阈值）。
 2. 同步 `docs/评级说明.md` 与 §8 表。
 3. 跑 `npm test`；再跑 `POST /api/simulate/ranked` 看升降手感（沙盘不动存档）。
-4. 若动了 `data/ranks.json` 的步长/锚点，`calibrated` 必须保持 `false`，直到有 ≥6 样本/级。
+4. 完整校准门槛见评级说明，缺证据时保持 `calibrated: false`。
 
 ### 16.4 验证界面（无头浏览器）
 
@@ -657,6 +657,7 @@ W1~W4 已完成，剩 W5（19 路校准）、W6（桌面壳 + 发布），**当�
 
 - 一个提交一件事；消息用 `feat(scope):` / `fix(scope):` / `docs:` / `chore:`。
 - 提交前：`npm test` 全绿 + `npm run typecheck` 通过 + 本文件同步。
+- 每个可验收的开发批次检查通过后，及时提交并推送到 GitHub，确认远端分支已收到提交。
 - 不提交 `data/config.json`、`data/engine/`、`data/models/`、`progress.json`。
 
 ---
@@ -671,4 +672,5 @@ W1~W4 已完成，剩 W5（19 路校准）、W6（桌面壳 + 发布），**当�
 | `docs/评级说明.md` | 公式、定级赛、升降级、防刷、A_k 怎么实测 |
 | `docs/主题规范.md` | `theme.json` token/variants、CSS 白名单、包结构 |
 | `docs/测试清单.md` | 手动回归清单（20+ 条勾选） |
+| `docs/联机协议.md` | 本机/局域网权限、房间与连接 |
 | `docs/archive/PLAN-v2.5.md` | **历史设计稿，已弃用**。只用于查"当初为什么这么定"；与本文件冲突时以本文件为准 |

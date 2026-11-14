@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Backend } from '@xingyi/shared';
-import { DEFAULT_KOMI } from '@xingyi/shared';
+import { BEGINNER_LEVEL, DEFAULT_KOMI } from '@xingyi/shared';
 
 export interface AppConfig {
   engine: {
@@ -11,6 +11,7 @@ export interface AppConfig {
     humanModelPath: string | null;
     configPath: string | null;
     extraArgs: string[];
+    startupTimeoutMs?: number;
   };
   ui: {
     themeId: string;
@@ -44,6 +45,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     humanModelPath: null,
     configPath: null,
     extraArgs: [],
+    startupTimeoutMs: 20000,
   },
   ui: {
     /** 默认主题：素雪（冷白浅色）。深色「玄墨」由用户自己切，不跟随系统 */
@@ -57,7 +59,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     playerColor: 'B',
   },
   game: {
-    maxLevel: 15,
+    maxLevel: BEGINNER_LEVEL,
     komi: DEFAULT_KOMI,
     boardSize: 19,
     aiResign: true,
@@ -69,6 +71,7 @@ function mergeDeep<T>(base: T, patch: unknown): T {
   if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return base;
   const out = { ...(base as Record<string, unknown>) };
   for (const [k, v] of Object.entries(patch as Record<string, unknown>)) {
+    if (!Object.hasOwn(base as object, k)) continue;
     const baseVal = (base as Record<string, unknown>)[k];
     if (baseVal && typeof baseVal === 'object' && !Array.isArray(baseVal) && v && typeof v === 'object') {
       out[k] = mergeDeep(baseVal, v);
@@ -79,10 +82,15 @@ function mergeDeep<T>(base: T, patch: unknown): T {
   return out as T;
 }
 
+export function updateConfigValues(base: AppConfig, patch: unknown): AppConfig {
+  const merged = mergeDeep(base, patch);
+  return { ...merged, game: { ...merged.game, maxLevel: BEGINNER_LEVEL } };
+}
+
 export function loadConfig(file: string): AppConfig {
   try {
     const raw = JSON.parse(fs.readFileSync(file, 'utf8')) as unknown;
-    return mergeDeep(DEFAULT_CONFIG, raw);
+    return updateConfigValues(DEFAULT_CONFIG, raw);
   } catch {
     return structuredClone(DEFAULT_CONFIG);
   }

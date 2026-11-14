@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import type { MoveRecord, ReviewPoint, ReviewResult } from '../types';
+import { PASS, vertexToGtp, type MoveRecord, type ReviewPoint, type ReviewResult } from '../types';
 import '../styles/review.css';
 
 interface ReviewPanelProps {
@@ -99,7 +99,7 @@ export function ReviewPanel({ result, ply, moves, onPick, onExit, onCancel }: Re
   const colorOf = (p: ReviewPoint): 'B' | 'W' => moves[p.ply - 1]?.color ?? 'B';
 
   return (
-    <section className="panel">
+    <section className="panel review-panel">
       <div className="panel-head">
         <span className="panel-title">复盘</span>
         <span className="panel-sub">
@@ -135,6 +135,14 @@ export function ReviewPanel({ result, ply, moves, onPick, onExit, onCancel }: Re
       )}
 
       <WinrateChart points={result.points} ply={ply} onPick={onPick} />
+      <div className="review-seek">
+        <button className="btn" aria-label="上一手" onClick={() => onPick(ply - 1)} disabled={ply === 0}>‹</button>
+        <label>
+          <span>第 {ply} / {result.points.length} 手{mv ? ` · ${mv.color === 'B' ? '黑' : '白'} ${mv.vertex === PASS ? '停一手' : vertexToGtp(result.size, mv.vertex)}` : ''}</span>
+          <input aria-label="回看手数" type="range" min={0} max={result.points.length} value={ply} onChange={(event) => onPick(Number(event.target.value))} />
+        </label>
+        <button className="btn" aria-label="下一手" onClick={() => onPick(ply + 1)} disabled={ply >= result.points.length}>›</button>
+      </div>
       <div className="review-legend">
         <span className="is-good">● 好</span>
         <span className="is-normal">● 一般</span>
@@ -216,7 +224,21 @@ export function ReviewPanel({ result, ply, moves, onPick, onExit, onCancel }: Re
         </div>
       )}
 
-      <div className="review-grid">
+      {mistakes.length > 0 && (
+        <div className="review-mistakes" role="group" aria-label="关键着法">
+          {mistakes.slice(0, 8).map((m) => (
+            <button key={m.ply} className={`review-mistake is-${colorOf(m) === 'B' ? 'black' : 'white'}`}
+              aria-pressed={m.ply === ply} onClick={() => onPick(m.ply)}>
+              {colorOf(m) === 'B' ? '黑' : '白'} {m.ply}{m.loss === null ? '' : ` · 亏 ${m.loss} 目`}
+            </button>
+          ))}
+          {mistakes.length > 8 && <span className="hint">共 {mistakes.length} 手失误</span>}
+        </div>
+      )}
+
+      <details className="screen-details review-moves">
+        <summary>全部着手</summary>
+        <div className="review-grid">
         {result.points.map((p) => (
           <button
             key={p.ply}
@@ -224,6 +246,7 @@ export function ReviewPanel({ result, ply, moves, onPick, onExit, onCancel }: Re
               p.ply === ply ? ' is-active' : ''
             }`}
             onClick={() => onPick(p.ply)}
+            aria-pressed={p.ply === ply}
             title={`${colorOf(p) === 'B' ? '黑' : '白'} 第 ${p.ply} 手 · ${
               p.loss === null ? '这手不在候选里' : `亏 ${p.loss} 目`
             }`}
@@ -231,23 +254,8 @@ export function ReviewPanel({ result, ply, moves, onPick, onExit, onCancel }: Re
             {p.ply}
           </button>
         ))}
-      </div>
-
-      {mistakes.length > 0 && (
-        <div className="review-mistakes">
-          {mistakes.slice(0, 8).map((m) => (
-            <button
-              key={m.ply}
-              className={`review-mistake is-${colorOf(m) === 'B' ? 'black' : 'white'}`}
-              onClick={() => onPick(m.ply)}
-            >
-              {colorOf(m) === 'B' ? '黑' : '白'} {m.ply}
-              {m.loss === null ? '' : ` · 亏 ${m.loss} 目`}
-            </button>
-          ))}
-          {mistakes.length > 8 && <span className="hint">等 {mistakes.length} 手</span>}
         </div>
-      )}
+      </details>
 
       <div className="controls" style={{ marginTop: 10 }}>
         <button className="btn btn-primary" onClick={onExit}>

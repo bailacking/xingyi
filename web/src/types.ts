@@ -1,3 +1,5 @@
+import type { Backend, Color } from '@xingyi/shared';
+
 export type {
   AnalysisCandidate,
   AnalysisResult,
@@ -36,7 +38,7 @@ export {
 export interface AppConfigLike {
   engine: {
     binaryPath: string | null;
-    backend: 'cuda' | 'opencl' | 'eigen';
+    backend: Backend;
     modelPath: string | null;
     humanModelPath: string | null;
     configPath: string | null;
@@ -71,6 +73,8 @@ export interface PlacementView {
 }
 
 export interface ProgressView {
+  activeSaveId: string | null;
+  rankedMatch: { level: number; playerColor: Color } | null;
   playerName: string;
   level: number;
   levelCn: string;
@@ -78,6 +82,8 @@ export interface ProgressView {
   RD: number;
   provisional: boolean;
   gamesTotal: number;
+  gamesWon: number;
+  gamesLost: number;
   levelGames: number;
   levelWins: number;
   streak: number;

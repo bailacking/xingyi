@@ -38,16 +38,12 @@ describe('计时（主时间 + 读秒）', () => {
     const c = new Clock({ mainSec: 0, byoYomiSec: 10, periods: 2 });
     c.start('W', 0);
     expect(c.tick(11000)).toBeNull(); // 超 1 秒 → 还剩 1 期
-    let v = c.view();
+    const v = c.view();
     expect(v.periods.W).toBe(1);
     expect(v.whiteMs).toBe(9000);
 
-    expect(c.tick(20000)).toBeNull(); // 第二期也用掉 → 读秒期为 0，但手上还有满额时间
-    v = c.view();
-    expect(v.periods.W).toBe(0);
-    expect(v.whiteMs).toBe(10000);
-
-    expect(c.tick(31000)).toBe('W'); // 时间再次到 0 且没有读秒了 → 白超时
+    expect(c.tick(20000)).toBe('W');
+    expect(c.view().periods.W).toBe(0);
     expect(c.view().running).toBeNull();
     expect(c.view().whiteMs).toBe(0);
   });
